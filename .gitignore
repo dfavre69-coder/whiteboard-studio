@@ -1,0 +1,15 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+
+# Vidéos et projets de travail (gardez-les hors du dépôt)
+*.mp4
+*.mov
+demo/
+demo-whiteboard/
+mes-projets/

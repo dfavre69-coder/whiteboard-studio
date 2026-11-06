@@ -1,0 +1,240 @@
+# Whiteboard Studio
+
+Créez des vidéos explicatives « main qui dessine » (*whiteboard animation*) pour YouTube : une main tient un feutre, dessine vos illustrations trait par trait, écrit vos titres à la main, puis les couleurs apparaissent. Voix off et musique de fond comprises, export MP4 prêt à mettre en ligne.
+
+![Aperçu d'une vidéo](docs/apercu.gif)
+
+## Fonctionnalités
+
+- **Assistant IA** : collez un texte, l'appli prépare le prompt pour Claude, ChatGPT… ou le fait rédiger directement par un modèle local **Ollama** ; la réponse devient un projet complet (scènes, icônes, narration de chaque scène).
+- **Voix off Qwen3-TTS intégrée** : les narrations sont lues par votre voix clonée (ou une voix prédéfinie), puis rattachées aux scènes automatiquement.
+- **Scènes prédéfinies** : titre de chapitre, liste à puces, étapes reliées par des flèches, comparaison, chiffre clé, citation, fin de vidéo. Il suffit de remplir le texte.
+- **Images vectorielles (SVG)** : la main suit exactement chaque tracé du fichier, puis les couleurs (aplats et dégradés simplifiés) apparaissent.
+- **Plus de 1 200 cliparts en couleur** (animaux, objets, aliments, lieux, métiers, émotions…) : la main dessine leurs contours, puis les couleurs apparaissent.
+- **4 800 icônes au trait** en complément, pour les idées abstraites. Recherche en français dans les deux bibliothèques.
+- **Images classiques** : n'importe quelle image (PNG, JPG…) est transformée en tracés, dessinés dans un ordre naturel, puis colorisée si vous le souhaitez.
+- **Texte écrit à la main** : titres et légendes s'écrivent de gauche à droite avec une police manuscrite (fournie, libre de droits) ou la vôtre.
+- **Voix off par scène** : la durée du dessin se cale automatiquement sur la voix. Idéal avec des voix générées par synthèse vocale.
+- **Musique de fond** en boucle, volume réglable, avec fondu d'entrée et de sortie.
+- **Formats** : 1080p, 720p, 4K, Shorts vertical (1080 × 1920) et carré.
+- **Transitions** entre scènes : glisser, fondu ou coupe.
+- **Main droite, main gauche ou votre propre main** (PNG détouré).
+- **Import d'un plan texte** : tout le script de la vidéo devient des scènes en un clic.
+- **Aperçu** fixe instantané et aperçu animé rapide de chaque scène.
+- 100 % local : rien n'est envoyé sur Internet.
+
+![Interface](docs/interface.png)
+
+## Installation (Windows, un clic)
+
+1. Téléchargez le projet (bouton vert **Code → Download ZIP**) et décompressez-le, ou clonez-le.
+2. Double-cliquez sur **`install.bat`**.
+
+Le script installe Python 3.12 s'il est absent (via `winget`), crée un environnement isolé `.venv`, installe les dépendances (ffmpeg compris) et place un raccourci **Whiteboard Studio** sur le Bureau et dans le menu Démarrer.
+
+Ensuite, lancez l'application avec le raccourci ou **`lancer.bat`**.
+
+> Pas de droits administrateur nécessaires. Pour désinstaller, supprimez le dossier et les raccourcis.
+
+### macOS / Linux
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m whiteboard
+```
+
+Sous Linux, Tkinter s'installe à part si besoin (`sudo apt install python3-tk`).
+
+## Utilisation
+
+1. Cliquez sur **Démo** pour voir un exemple complet, ou partez d'un projet vide.
+2. **+ Ajouter ▾** propose les scènes prédéfinies, déjà remplies d'un exemple. Le **Modèle** d'une scène existante peut aussi être changé à tout moment.
+3. Pour chaque scène : un titre, un visuel (fichier ou icône), un texte, éventuellement une voix off.
+4. **Aperçu animé de la scène** génère un extrait basse définition en quelques secondes.
+5. **Exporter la vidéo…** produit le MP4 final.
+
+Le projet s'enregistre en `.json`. Les chemins des images et sons sont stockés relativement au projet : rangez tout dans un même dossier pour le déplacer facilement.
+
+### Du texte à la vidéo avec une IA
+
+1. **Assistant IA…** : collez votre texte (article, script, notes), indiquez la durée visée et le ton.
+2. Deux possibilités :
+   - **Copier le prompt** et le coller dans une IA externe (Claude, ChatGPT, Mistral…), puis copier toute sa réponse et cliquer sur **Coller**. C'est en général ce qui donne le meilleur découpage ;
+   - **Générer avec Ollama** : votre modèle local rédige la réponse directement, en continu dans la fenêtre (rien ne sort de votre ordinateur).
+3. **Créer les scènes**.
+
+![Assistant IA](docs/assistant.png)
+
+L'IA découpe le texte en scènes, choisit les modèles et les icônes, et écrit la **narration** de chaque scène (le texte de la voix off, distinct des mots clés affichés). L'import est tolérant : bloc ```` ```json ````, virgule en trop, modèle mal orthographié ou icône inexistante sont corrigés automatiquement, et la liste des corrections s'affiche. Sans voix off, la durée de chaque scène est estimée d'après la longueur de sa narration.
+
+#### Voix off avec Qwen3-TTS
+
+Whiteboard Studio pilote [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) installé dans **son propre environnement Python** (PyTorch, CUDA…) : rien de lourd n'est ajouté à l'application.
+
+1. **Réglages IA et voix… → Qwen3-TTS** : indiquez le `python.exe` de cet environnement (par exemple `D:\ai\qwen3-tts\qwen_env\Scripts\python.exe`), puis **Vérifier**.
+2. Choisissez le modèle. Avec un modèle **Base** (clonage), donnez un extrait de 10 à 20 secondes de la voix à cloner et, idéalement, sa transcription exacte. Avec un modèle **CustomVoice**, choisissez un locuteur prédéfini.
+3. **Essayer la voix**, puis dans la fenêtre principale **Générer les voix off (Qwen3-TTS)** pour tout le projet, ou **Générer** pour la scène sélectionnée (▶ pour écouter).
+
+Les fichiers sont rangés dans `nom-du-projet_voix/01.wav`, `02.wav`… et rattachés aux scènes ; la durée du dessin suit alors la voix. Le modèle est chargé une seule fois pour toutes les scènes, dans un processus séparé qui libère la mémoire vidéo à la fin. Avec l'option **Libérer la mémoire vidéo** (Ollama), le modèle de rédaction est déchargé dès sa réponse reçue, pour laisser la carte graphique à la synthèse vocale.
+
+#### Ollama
+
+**Réglages IA et voix… → Ollama** : adresse (par défaut `http://localhost:11434`), modèle, taille de contexte (32 768 conseillé), température. L'option **Sans phase de réflexion** envoie `/no_think` : plus rapide, et souvent meilleur en rédaction avec les modèles Qwen3. La réponse est demandée au format JSON.
+
+#### Autre outil de synthèse vocale
+
+1. **Exporter les narrations** écrit `01.txt`, `02.txt`… (une par scène) et `script_complet.txt`.
+2. Générez les voix avec votre outil de synthèse vocale (ou enregistrez-vous) en gardant les numéros : `01.wav`, `02.wav`…
+3. **Associer un dossier de voix off** rattache chaque fichier à sa scène (le premier nombre du nom de fichier donne le numéro de scène) ; la durée du dessin se cale alors sur la voix.
+
+Le prompt est modifiable : `whiteboard/assets/prompt_video.md`.
+
+### Scènes prédéfinies
+
+| Modèle | Titre | Texte |
+|---|---|---|
+| Image et texte | titre en haut | légende sous le visuel |
+| Titre de chapitre | grand titre souligné | sous-titre |
+| Liste à puces | titre de la liste | un point par ligne (coche, ou icône) |
+| Étapes reliées | titre du processus | une étape par ligne, reliées par des flèches |
+| Comparaison | titre | une colonne par ligne (2 ou 3), « VS » entre deux colonnes |
+| Chiffre clé | le chiffre, entouré | sa légende |
+| Citation | l'auteur | la citation |
+| Fin de vidéo | message de fin | actions (par défaut : Abonnez-vous, J'aime, Commentez, en cliparts) |
+
+Dans le texte des modèles, un visuel peut précéder chaque ligne entre crochets :
+
+```text
+[clipart:ampoule] L'idée
+[tools] La fabrication
+[C:/Mes images/fusee.svg] Le lancement
+```
+
+Le bouton **Insérer un visuel…** écrit ce code pour vous sur la ligne du curseur. Toutes les mises en page s'adaptent au format vertical (Shorts).
+
+### Cliparts, icônes et images vectorielles
+
+![Bibliothèque de visuels](docs/icones.png)
+
+**Bibliothèque…**, à côté du champ « Visuel », ouvre deux collections :
+
+- **Cliparts en couleur** : plus de 1 200 illustrations [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) de Microsoft (style « Flat », licence MIT), nommées et classées en français. La main en trace les contours (les traits cachés par une forme posée par-dessus ne sont pas dessinés), puis les couleurs apparaissent. En mode « Dessin au trait seulement », elles restent en croquis.
+- **Icônes au trait** : 4 800 icônes [Tabler](https://tabler.io/icons) (licence MIT, sans les logos de marques), idéales pour les idées abstraites. La recherche comprend les mots français courants : « fusée », « argent », « équipe »…
+
+Dans le texte des modèles, un clipart s'écrit `[clipart:abeille] Libellé` et une icône `[bulb] Libellé` ; **Insérer un visuel…** écrit ce code pour vous.
+- Un fichier **SVG** (Inkscape, Illustrator, Figma, banques d'images vectorielles…) est dessiné trait par trait, dans l'ordre du fichier, puis colorisé. Les textes intégrés au SVG et les images bitmap qu'il contient sont ignorés ; un dégradé est remplacé par sa couleur médiane.
+
+### Conseils pour un beau rendu
+
+- Les **dessins au trait sur fond blanc ou transparent** donnent le meilleur effet. Les photos fonctionnent aussi, mais le croquis est plus approximatif.
+- Le curseur **Détails extraits** règle la quantité de traits tirés d'une image : baissez-le si le dessin est trop chargé.
+- **Dessin au trait seulement** garde l'aspect croquis ; **Dessin puis couleurs** fait apparaître l'image originale à la fin.
+
+### Importer un plan texte
+
+Écrivez le script dans un fichier `.txt` :
+
+```text
+# Pourquoi le ciel est bleu
+La lumière du Soleil contient toutes les couleurs.
+
+# La diffusion
+L'air disperse davantage le bleu que le rouge.
+```
+
+Chaque ligne commençant par `#` crée une scène (le titre) ; les lignes suivantes deviennent son texte. Sans aucun `#`, chaque paragraphe devient une scène. Il ne reste qu'à ajouter images et voix off.
+
+### Voix off
+
+Ajoutez un fichier audio (WAV, MP3, M4A…) par scène. Avec **Caler la durée de la scène sur la voix off** coché, le dessin occupe le temps de la phrase et la scène suivante démarre juste après. Une habitude efficace : un fichier audio par paragraphe du script, nommés `01.wav`, `02.wav`…
+
+### Votre propre main
+
+Choisissez **Main → Image personnalisée…** et fournissez un PNG transparent d'une main qui tient un stylo, la pointe du stylo dirigée vers le bas à gauche (elle est détectée automatiquement). Le bras doit sortir par le bas ou le côté droit de l'image.
+
+## Ligne de commande
+
+Utile pour automatiser la production :
+
+```bash
+# Fabriquer la vidéo d'un projet
+.venv\Scripts\python -m whiteboard rendu mon-projet.json -o ma-video.mp4
+
+# Aperçu rapide (demi-résolution), scènes 2 et 3 seulement
+.venv\Scripts\python -m whiteboard rendu mon-projet.json --apercu --scenes 2,3
+
+# Créer un projet à partir d'un plan texte
+.venv\Scripts\python -m whiteboard plan script.txt -o mon-projet.json
+
+# Assistant IA en ligne de commande
+.venv\Scripts\python -m whiteboard prompt article.txt --duree 3 -o prompt.txt
+.venv\Scripts\python -m whiteboard ia reponse_ia.txt -o mon-projet.json
+.venv\Scripts\python -m whiteboard narrations mon-projet.json voix
+.venv\Scripts\python -m whiteboard voix mon-projet.json voix
+
+# Ollama et Qwen3-TTS (réglages de l'interface)
+.venv\Scripts\python -m whiteboard ollama article.txt --duree 3 -o mon-projet.json
+.venv\Scripts\python -m whiteboard tts mon-projet.json
+
+# Créer le projet de démonstration
+.venv\Scripts\python -m whiteboard demo dossier-demo
+```
+
+Le format du projet JSON est simple à générer depuis un autre programme (`modele` : `libre`, `titre`, `liste`, `etapes`, `comparaison`, `chiffre`, `citation`, `fin` ; `image` accepte aussi `clipart:nom` et `icone:nom`) :
+
+```json
+{
+  "largeur": 1920, "hauteur": 1080, "fps": 30,
+  "main": "droite", "transition": "glisser",
+  "musique": "musique.mp3", "volume_musique": 0.12,
+  "scenes": [
+    {"modele": "libre", "titre": "Introduction", "image": "images/ampoule.png", "texte": "Une idée",
+     "mode": "couleur", "duree_dessin": 6, "pause": 2,
+     "narration": "Texte lu par la voix off.",
+     "audio": "voix/01.wav", "caler_sur_audio": true, "sensibilite": 50},
+    {"modele": "etapes", "titre": "Le processus", "texte": "[bulb] Idée\n[rocket] Lancement",
+     "image": "", "audio": "voix/02.wav"}
+  ]
+}
+```
+
+## Publier sur GitHub
+
+Double-cliquez sur **`publier_github.bat`**. La première fois, il installe Git et GitHub CLI si nécessaire, vous connecte à votre compte GitHub (dans le navigateur), puis crée le dépôt (public ou privé, au choix) et l'envoie. Les fois suivantes, il envoie simplement vos modifications avec un message de version.
+
+Les vidéos (`*.mp4`) et l'environnement `.venv` sont exclus du dépôt. Les tests automatiques s'exécutent sur GitHub à chaque envoi (Windows et Linux).
+
+## Comment ça marche
+
+1. Une image classique est convertie en croquis (seuillage adaptatif OpenCV) ; un SVG ou une icône est lu tracé par tracé.
+2. Le croquis est découpé en petites cellules ; un parcours qui suit les traits, bloc après bloc en allant au plus proche, donne l'ordre de dessin. Le texte, lui, est parcouru de gauche à droite.
+3. Pour un dessin vectoriel, la pointe du feutre suit directement les chemins du fichier.
+4. Chaque image de la vidéo révèle les traits suivants et place la pointe du feutre sur le dernier.
+5. Les images sont envoyées directement à ffmpeg (H.264), qui mixe voix off et musique au passage.
+
+## Développement
+
+```bash
+.venv\Scripts\pip install pytest
+.venv\Scripts\python -m pytest
+```
+
+| Fichier | Rôle |
+|---|---|
+| `whiteboard/traits.py` | extraction de l'encre et ordre de tracé |
+| `whiteboard/vecteur.py` | lecture des SVG, bibliothèque d'icônes, parcours vectoriel |
+| `whiteboard/modeles.py` | scènes prédéfinies et traits à main levée |
+| `whiteboard/ia.py` | prompt, import de la réponse d'IA, narrations et voix off |
+| `whiteboard/ollama.py` | client Ollama (flux continu, JSON, sans réflexion) |
+| `whiteboard/tts.py`, `tts_worker.py` | pilotage de Qwen3-TTS dans son propre environnement |
+| `whiteboard/config.py` | réglages enregistrés (`%APPDATA%\WhiteboardStudio\config.json`) |
+| `whiteboard/rendu.py` | mise en page, animation, export |
+| `whiteboard/main.py` | la main dessinée (générée par le programme) |
+| `whiteboard/video.py` | ffmpeg : encodage et mixage audio |
+| `whiteboard/gui.py` | interface Tkinter |
+| `whiteboard/projet.py` | format des projets |
+
+## Licence
+
+Code sous licence MIT. Police *Patrick Hand* de Patrick Wagesreiter, sous licence SIL Open Font License 1.1. Icônes [Tabler Icons](https://tabler.io/icons) de Paweł Kuna, sous licence MIT (`whiteboard/assets/icones/LICENSE-Tabler.txt`). Cliparts [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) de Microsoft, sous licence MIT, avec les noms français des annotations Unicode CLDR via [emojibase](https://emojibase.dev) (licence MIT) : voir `whiteboard/assets/cliparts/`. La bibliothèque se reconstruit avec `outils/construire_cliparts.py`. Toutes les illustrations de démonstration et la main sont dessinées par le programme.
