@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whiteboard-studio"
-version = "1.4.0"
+version = "1.5.0"
 description = "Vidéos « main qui dessine » (whiteboard animation) pour YouTube"
 readme = "README.md"
 license = { text = "MIT" }
@@ -20,4 +20,4 @@ whiteboard-studio = "whiteboard.cli:main"
 packages = ["whiteboard"]
 
 [tool.setuptools.package-data]
-whiteboard = ["assets/*", "assets/polices/*", "assets/icones/*", "assets/cliparts/*"]
+whiteboard = ["assets/*", "assets/polices/*", "assets/icones/*", "assets/cliparts/*", "assets/personnages/*"]

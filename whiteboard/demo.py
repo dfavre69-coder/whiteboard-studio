@@ -123,22 +123,27 @@ def creer_demo(dossier: str | Path) -> Path:
     p = Projet(scenes=[
         Scene(modele="titre", titre="Une idée en 3 étapes", texte="La méthode expliquée simplement",
               image="clipart:ampoule", duree_dessin=4.0, pause=1.5),
+        Scene(modele="personnage", image="personne:femme,pensive,lunettes,bleu",
+              texte="[clipart:ampoule] Et si je lançais mon projet ?", duree_dessin=6.0, pause=2.0),
         Scene(titre="1. Avoir l'idée", image=str(images / "ampoule.png"),
-              texte="Tout commence par une étincelle", duree_dessin=5.5, pause=2.0),
+              texte="Tout commence par une étincelle", duree_dessin=5.0, pause=1.5),
         Scene(modele="etapes", titre="2. Construire",
               texte="[clipart:crayon] Dessiner\n[clipart:boite-a-outils] Assembler\n[clipart:coche] Tester",
-              duree_dessin=6.5, pause=2.0),
-        Scene(titre="3. Lancer", image=str(images / "fusee.svg"), texte="Et le projet décolle !",
-              duree_dessin=5.0, pause=2.0),
-        Scene(modele="comparaison", titre="Seul ou en équipe ?",
-              texte="[clipart:escargot] Seul : on avance lentement\n[clipart:fusee] En équipe : on décolle",
               duree_dessin=6.0, pause=2.0),
-        Scene(modele="chiffre", titre="x3", texte="l'objectif de la première année",
-              image="icone:trending-up", duree_dessin=3.5, pause=2.0),
+        Scene(titre="3. Lancer", image=str(images / "fusee.svg"), texte="Et le projet décolle !",
+              duree_dessin=4.5, pause=1.5),
+        Scene(modele="comparaison", titre="Seule ou en équipe ?",
+              texte="[personne:femme,lunettes,bleu,débordée] Seule\n[personne:femme,lunettes,bleu,heureuse] En équipe",
+              duree_dessin=6.5, pause=2.0),
+        Scene(modele="graphique", titre="Utilisateurs (exemple)",
+              texte="Mois 1 : 120\nMois 2 : 450\nMois 3 : 1 300", duree_dessin=5.0, pause=2.0),
+        Scene(modele="chronologie", titre="Le calendrier",
+              texte="[clipart:ampoule] Janvier : l'idée\n[clipart:boite-a-outils] Mars : le prototype\n"
+                    "[clipart:fusee] Juin : le lancement", duree_dessin=6.0, pause=2.0),
         Scene(modele="liste", titre="À retenir",
-              texte="[clipart:dans-le-mille] Partir d'un vrai problème\n[clipart:echelle] Avancer par petites étapes\n"
-                    "[clipart:coeur-rouge] Garder le plaisir",
-              duree_dessin=5.5, pause=2.0),
+              texte="[clipart:dans-le-mille+ok] Partir d'un vrai problème\n"
+                    "[clipart:telephone-portable+non] Éviter les distractions\n"
+                    "[clipart:coeur-rouge] Garder le plaisir", duree_dessin=5.5, pause=2.0),
         Scene(modele="fin", titre="Merci d'avoir regardé !", duree_dessin=4.0, pause=2.0),
     ])
     chemin = dossier / "demo.json"

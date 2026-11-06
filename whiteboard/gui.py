@@ -1390,9 +1390,10 @@ class FenetreReglages(tk.Toplevel):
 
 
 class SelecteurIcones(tk.Toplevel):
-    """Bibliothèque de visuels : cliparts en couleur et icônes au trait.
+    """Bibliothèque de visuels : cliparts en couleur, icônes au trait, personnages modulaires.
 
-    `rappel` reçoit la source choisie : « clipart:nom » ou « icone:nom ».
+    `rappel` reçoit la source choisie : « clipart:nom », « icone:nom » ou « personne:… »,
+    éventuellement suivie d'une pastille (« +ok », « +non »…).
     """
 
     TAILLE = 56
@@ -1400,14 +1401,18 @@ class SelecteurIcones(tk.Toplevel):
     MAX = 270
     GENRES = {"clipart": ("Cliparts en couleur", PREFIXE_CLIPART, chercher_cliparts, categories_cliparts,
                           vignette_clipart),
-              "icone": ("Icônes au trait", PREFIXE_ICONE, chercher_icones, categories_icones, vignette_icone)}
+              "icone": ("Icônes au trait", PREFIXE_ICONE, chercher_icones, categories_icones, vignette_icone),
+              "personne": ("Personnages", "personne:", None, None, None)}
     _dernier_genre = "clipart"
 
     def __init__(self, parent, rappel, genre: str | None = None):
+        from . import personnages as P
+        from .vecteur import PASTILLES
         super().__init__(parent)
+        self.P = P
         self.title("Bibliothèque de visuels")
         self.transient(parent)
-        self.geometry("720x580")
+        self.geometry("740x620")
         self.rappel = rappel
         self._images: dict[str, ImageTk.PhotoImage] = {}
         self._noms: list[str] = []
@@ -1424,20 +1429,20 @@ class SelecteurIcones(tk.Toplevel):
         self.lbl_nb = ttk.Label(onglets, text="", foreground="#666")
         self.lbl_nb.pack(side="right")
 
-        haut = ttk.Frame(self, padding=8)
+        # --- recherche (cliparts, icônes) -------------------------------------
+        self.cadre_recherche = ttk.Frame(self)
+        haut = ttk.Frame(self.cadre_recherche, padding=8)
         haut.pack(fill="x")
         ttk.Label(haut, text="Rechercher").pack(side="left")
         self.v_req = tk.StringVar()
-        champ = ttk.Entry(haut, textvariable=self.v_req, width=24)
-        champ.pack(side="left", padx=6)
-        champ.focus_set()
+        self.champ = ttk.Entry(haut, textvariable=self.v_req, width=24)
+        self.champ.pack(side="left", padx=6)
         self.v_cat = tk.StringVar(value="Toutes les catégories")
         self.combo_cat = ttk.Combobox(haut, textvariable=self.v_cat, state="readonly", width=24)
         self.combo_cat.pack(side="left", padx=6)
         self.v_req.trace_add("write", lambda *a: self._planifier())
         self.v_cat.trace_add("write", lambda *a: self._planifier())
-
-        cadre = ttk.Frame(self)
+        cadre = ttk.Frame(self.cadre_recherche)
         cadre.pack(fill="both", expand=True, padx=8)
         self.canvas = tk.Canvas(cadre, background="white", highlightthickness=0)
         defil = ttk.Scrollbar(cadre, orient="vertical", command=self.canvas.yview)
@@ -1448,13 +1453,44 @@ class SelecteurIcones(tk.Toplevel):
         self.canvas.bind("<Button-4>", lambda e: self.canvas.yview_scroll(-2, "units"))
         self.canvas.bind("<Button-5>", lambda e: self.canvas.yview_scroll(2, "units"))
 
+        # --- composition d'un personnage --------------------------------------
+        self.cadre_perso = ttk.Frame(self, padding=10)
+        form = ttk.Frame(self.cadre_perso)
+        form.pack(side="left", fill="y")
+        self.v_p = {}
+        champs = [("Genre", ["au hasard", "femme", "homme"]), ("Expression", P.CHOIX_EMOTION),
+                  ("Coiffure", ["au hasard"] + P.CHOIX_COIFFURE), ("Barbe", ["aucune"] + P.CHOIX_PILOSITE),
+                  ("Accessoire", ["aucun"] + P.CHOIX_ACCESSOIRE), ("Peau", ["au hasard"] + P.CHOIX_PEAU),
+                  ("Vêtement", ["au hasard"] + P.CHOIX_VETEMENT)]
+        for i, (nom, valeurs) in enumerate(champs):
+            ttk.Label(form, text=nom).grid(row=i, column=0, sticky="w", pady=4, padx=(0, 8))
+            v = tk.StringVar(value=valeurs[0])
+            ttk.Combobox(form, textvariable=v, values=valeurs, state="readonly", width=20).grid(row=i, column=1)
+            v.trace_add("write", lambda *a: self._apercu_perso())
+            self.v_p[nom] = v
+        ttk.Button(form, text="Autre tirage", command=self._autre_tirage).grid(row=len(champs), column=1,
+                                                                              sticky="w", pady=8)
+        self._tirage = 0
+        self.lbl_perso = ttk.Label(form, text="", foreground="#555", wraplength=260, justify="left")
+        self.lbl_perso.grid(row=len(champs) + 1, column=0, columnspan=2, sticky="w")
+        self.canvas_perso = tk.Canvas(self.cadre_perso, width=320, height=320, background="white",
+                                      highlightthickness=0)
+        self.canvas_perso.pack(side="right", padx=10)
+
+        # --- bas : pastille et validation -------------------------------------
         bas = ttk.Frame(self, padding=8)
-        bas.pack(fill="x")
+        bas.pack(fill="x", side="bottom")
         self.lbl = ttk.Label(bas, text="Cliquez sur un visuel, puis « Choisir » (ou double-clic).")
         self.lbl.pack(side="left")
         ttk.Button(bas, text="Annuler", command=self.destroy).pack(side="right")
         self.b_ok = ttk.Button(bas, text="Choisir", command=self._valider, state="disabled")
         self.b_ok.pack(side="right", padx=6)
+        self.v_pastille = tk.StringVar(value="sans pastille")
+        noms_p = ["sans pastille", "ok", "non", "attention", "question", "plus", "moins", "etoile", "coeur",
+                  "hausse", "baisse"]
+        ttk.Combobox(bas, textvariable=self.v_pastille, values=[n for n in noms_p if n == noms_p[0] or n in PASTILLES],
+                     state="readonly", width=13).pack(side="right", padx=6)
+        ttk.Label(bas, text="Pastille").pack(side="right")
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Return>", lambda e: self._valider())
         self._changer_genre()
@@ -1465,12 +1501,55 @@ class SelecteurIcones(tk.Toplevel):
 
     def _changer_genre(self):
         SelecteurIcones._dernier_genre = self.v_genre.get()
+        self._choix = None
+        if self.v_genre.get() == "personne":
+            self.cadre_recherche.pack_forget()
+            self.cadre_perso.pack(fill="both", expand=True)
+            self.lbl_nb.configure(text="584 000 combinaisons")
+            self._apercu_perso()
+            return
+        self.cadre_perso.pack_forget()
+        self.cadre_recherche.pack(fill="both", expand=True)
+        self.champ.focus_set()
         self.combo_cat.configure(values=["Toutes les catégories"] + self._g[3]())
         self.v_cat.set("Toutes les catégories")
-        self._choix = None
         self.b_ok.configure(state="disabled")
         self._planifier(10)
 
+    # --- personnages -----------------------------------------------------------
+    def _description_perso(self) -> str:
+        mots = []
+        for nom, v in self.v_p.items():
+            val = v.get()
+            if val and not val.startswith(("au hasard", "aucun")):
+                mots.append(val)
+        if self._tirage:
+            mots.append(f"tirage {self._tirage}")
+        return "personne:" + ",".join(mots)
+
+    def _autre_tirage(self):
+        self._tirage += 1
+        self._apercu_perso()
+
+    def _apercu_perso(self):
+        from .vecteur import charger_vecteur, rendre_vecteur
+        desc = self._description_perso()
+        try:
+            r = rendre_vecteur(charger_vecteur(desc), 300, 300, 2, 4, (255, 255, 255), (30, 30, 30))
+        except Exception as e:  # noqa: BLE001
+            self.lbl_perso.configure(text=f"Erreur : {e}")
+            return
+        from PIL import Image
+        img = Image.fromarray(r.finale) if r.finale is not None else Image.new("RGB", (300, 300), "white")
+        self._img_perso = ImageTk.PhotoImage(img)
+        self.canvas_perso.delete("all")
+        self.canvas_perso.create_image(160, 160, image=self._img_perso)
+        self._choix = desc
+        self.b_ok.configure(state="normal")
+        self.lbl.configure(text=desc)
+        self.lbl_perso.configure(text="Compris : " + self.P.description_lisible(desc))
+
+    # --- cliparts et icônes ---------------------------------------------------
     def _planifier(self, delai: int = 250):
         if self._job:
             self.after_cancel(self._job)
@@ -1478,6 +1557,8 @@ class SelecteurIcones(tk.Toplevel):
 
     def _rechercher(self):
         self._job = None
+        if self.v_genre.get() == "personne":
+            return
         cat = self.v_cat.get()
         cat = "" if cat.startswith("Toutes") else cat
         self._noms = self._g[2](self.v_req.get(), cat, limite=self.MAX)
@@ -1493,7 +1574,7 @@ class SelecteurIcones(tk.Toplevel):
         self._afficher(0, self._gen)
 
     def _afficher(self, debut, gen):
-        if gen != self._gen or not self.winfo_exists():
+        if gen != self._gen or not self.winfo_exists() or self.v_genre.get() == "personne":
             return
         pas = self.TAILLE + 22
         genre, vignette = self.v_genre.get(), self._g[4]
@@ -1517,7 +1598,7 @@ class SelecteurIcones(tk.Toplevel):
             self.after(1, self._afficher, debut + 30, gen)
 
     def _selectionner(self, nom, tag):
-        self._choix = nom
+        self._choix = self._g[1] + nom
         self.canvas.itemconfigure("fond", fill="white")
         if tag:
             for item in self.canvas.find_withtag(tag):
@@ -1528,7 +1609,9 @@ class SelecteurIcones(tk.Toplevel):
 
     def _valider(self):
         if self._choix:
-            source = self._g[1] + self._choix
+            source = self._choix
+            if self.v_pastille.get() != "sans pastille":
+                source += "+" + self.v_pastille.get()
             self.destroy()
             self.rappel(source)
 

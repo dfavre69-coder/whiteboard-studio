@@ -118,6 +118,7 @@ def liste_cliparts_prompt() -> str:
 
 
 def construire_prompt(texte: str, duree_minutes: float = 3, ton: str = "") -> str:
+    from . import personnages as P
     modele = FICHIER_PROMPT.read_text(encoding="utf-8")
     nb = max(3, round(duree_minutes * 60 / SECONDES_PAR_SCENE))
     remplacements = {
@@ -126,6 +127,12 @@ def construire_prompt(texte: str, duree_minutes: float = 3, ton: str = "") -> st
         "{TON}": ton.strip() or "grand public curieux, ton clair, chaleureux et pédagogique",
         "{ICONES}": liste_icones_prompt(),
         "{CLIPARTS}": liste_cliparts_prompt(),
+        "{EMOTIONS}": ", ".join(P.CHOIX_EMOTION),
+        "{COIFFURES}": ", ".join(P.CHOIX_COIFFURE),
+        "{BARBES}": ", ".join(P.CHOIX_PILOSITE),
+        "{ACCESSOIRES}": ", ".join(P.CHOIX_ACCESSOIRE),
+        "{PEAUX}": ", ".join(P.CHOIX_PEAU),
+        "{VETEMENTS}": ", ".join(P.CHOIX_VETEMENT),
         "{TEXTE}": texte.strip() or "(colle ici ton texte)",
     }
     for cle, valeur in remplacements.items():
@@ -148,8 +155,16 @@ SYNONYMES = {
     "libre": "libre", "image": "libre", "illustration": "libre", "image-texte": "libre", "imageettexte": "libre",
     "titre": "titre", "title": "titre", "chapitre": "titre", "intro": "titre", "introduction": "titre",
     "liste": "liste", "list": "liste", "puces": "liste", "listeapuces": "liste", "bullets": "liste",
-    "etapes": "etapes", "etape": "etapes", "steps": "etapes", "processus": "etapes", "chronologie": "etapes",
-    "timeline": "etapes", "etapesreliees": "etapes",
+    "etapes": "etapes", "etape": "etapes", "steps": "etapes", "processus": "etapes",
+    "etapesreliees": "etapes",
+    "graphique": "graphique", "barres": "graphique", "histogramme": "graphique", "diagramme": "graphique",
+    "graphiqueenbarres": "graphique", "chart": "graphique", "graph": "graphique",
+    "proportion": "proportion", "pictogrammes": "proportion", "pictogramme": "proportion", "ratio": "proportion",
+    "pourcentage": "proportion",
+    "chronologie": "chronologie", "frise": "chronologie", "frisechronologique": "chronologie",
+    "timeline": "chronologie", "dates": "chronologie",
+    "personnage": "personnage", "dialogue": "personnage", "bulle": "personnage", "personnagequiparle": "personnage",
+    "character": "personnage",
     "comparaison": "comparaison", "comparison": "comparaison", "versus": "comparaison", "vs": "comparaison",
     "chiffre": "chiffre", "chiffrecle": "chiffre", "nombre": "chiffre", "statistique": "chiffre", "stat": "chiffre",
     "number": "chiffre",
@@ -211,6 +226,26 @@ def _visuel(valeur: str, remarques: list[str], ou: str) -> str:
     valeur = (valeur or "").strip()
     if not valeur:
         return ""
+    if valeur.lower().startswith("personne:"):
+        return "personne:" + valeur[len("personne:"):].strip()
+    if "+" in valeur and not Path(valeur).exists():
+        # composition : premier visuel + autres visuels ou pastilles
+        from .vecteur import PASTILLES, _sans_accents
+        parties = [p.strip() for p in valeur.split("+") if p.strip()]
+        base = _visuel(parties[0], remarques, ou)
+        if not base:
+            return ""
+        ajouts = []
+        for p in parties[1:]:
+            cle = _sans_accents(p)
+            if cle in PASTILLES:
+                ajouts.append(cle)
+                continue
+            v = _visuel(p if p.startswith(("icone:", "clipart:", "personne:")) else PREFIXE_CLIPART + p,
+                        remarques, ou)
+            if v:
+                ajouts.append(v)
+        return "+".join([base] + ajouts)
     if re.search(r"[\\/]|\.(svg|png|jpe?g|webp|bmp|gif)$", valeur, re.I):
         if Path(valeur).exists():
             return valeur

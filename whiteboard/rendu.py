@@ -179,7 +179,8 @@ class Fabrique:
         if not source or largeur_max < 8 or hauteur_max < 8:
             return None
         if est_vectoriel(source):
-            if not (est_icone(source) or est_clipart(source)) and not Path(source).exists():
+            base = source.split("+")[0].strip()
+            if base.lower().endswith(".svg") and not Path(base).exists():
                 return None
             try:
                 chemins = charger_vecteur(source)
@@ -206,6 +207,21 @@ class Fabrique:
         finale = rgb.copy() if self.scene.mode == "couleur" else None
         return Element(0, 0, _composer(a, self.fond, self.encre), a > 0.03, finale,
                        taille_cellule=max(5, round(self.R / 90)))
+
+    # --- dessins vectoriels en coordonnées écran (graphiques, bulles…) ------
+    def dessin(self, chemins, couleur: bool = True) -> Element | None:
+        """Formes déjà placées à l'écran (avec remplissages éventuels), dessinées par la main."""
+        chemins = [c for c in chemins if c.sous_chemins]
+        if not chemins:
+            return None
+        ep = max((c.epaisseur for c in chemins), default=self.trait) or self.trait
+        r = rendre_vecteur(chemins, 0, 0, self.trait, max(ep, self.trait), self.fond, self.encre,
+                           couleur=couleur and self.scene.mode == "couleur", fixe=True)
+        if r is None:
+            return None
+        return Element(int(round(r.origine[0])), int(round(r.origine[1])),
+                       _composer(r.croquis_alpha, self.fond, self.encre), r.croquis_alpha > 0.03, r.finale,
+                       points=r.points)
 
     # --- traits à main levée ----------------------------------------------
     def traits(self, polylignes: list, epaisseur: float | None = None) -> Element | None:

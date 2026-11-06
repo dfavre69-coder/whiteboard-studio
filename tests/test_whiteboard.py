@@ -351,4 +351,65 @@ def test_ia_cliparts():
                                     ' "texte": "[clipart:abeille] a\\n[clipart:zzzz-inconnu] b"}]}')
     assert p.scenes[0].image == "clipart:pot-de-miel"
     assert p.scenes[0].texte.split("\n") == ["[clipart:abeille] a", "b"]
-    assert "clipart:abeille" in construire_prompt("x")
+    assert "clipart:soleil" in construire_prompt("x")
+
+
+# --- Personnages, compositions, modèles de données ----------------------------------------
+from whiteboard.personnages import analyser  # noqa: E402
+
+
+def test_personnages():
+    a = analyser("personne:femme,surprise,lunettes,peau foncée,vert")
+    assert a["face"] == "awe" and a["accessories"] == "glasses" and a["peau"] == "#694d3d" and a["vetement"] == "#78e185"
+    # même apparence quand seule l'expression change, quel que soit l'ordre des mots
+    b = analyser("personne:vert, peau foncée, lunettes, femme, triste")
+    assert {k: v for k, v in a.items() if k != "face"} == {k: v for k, v in b.items() if k != "face"}
+    rendu = rendre_vecteur(charger_vecteur("personne:homme,barbe,pensif"), 300, 300, 3, 8,
+                           (255, 255, 255), (30, 30, 30))
+    assert rendu.finale is not None and len(rendu.points) > 200
+    assert rendu.largeur <= 300 and rendu.hauteur <= 300  # buste recadré dans sa vue
+
+
+def test_compositions():
+    base = charger_vecteur("clipart:maison")
+    avec = charger_vecteur("clipart:maison+ok")
+    assert len(avec) > len(base)
+    assert len(charger_vecteur("clipart:ordinateur-portable+cadenas-ferme")) > len(charger_vecteur("clipart:ordinateur-portable"))
+    assert len(charger_vecteur("clipart:maison+pastille-inconnue-zz")) == len(base)  # ignoré sans planter
+
+
+def test_modeles_de_donnees():
+    for W, H in ((640, 360), (360, 640)):
+        p = Projet(largeur=W, hauteur=H)
+        for sc in [scene_exemple(c) for c in ("graphique", "proportion", "chronologie", "personnage")] + [
+                Scene(modele="liste", titre="L", texte="[personne:femme,content] A\n[clipart:maison+ok] B"),
+                Scene(modele="graphique", titre="G", texte="pas de chiffres ici")]:
+            sp = preparer_scene(p, sc)
+            assert sp.elements and sp.etapes, sc.modele
+            for el in sp.elements:
+                assert el.x >= 0 and el.y >= 0 and el.x + el.largeur <= W and el.y + el.hauteur <= H
+    # le graphique dessine une barre par valeur, colorée
+    sp = preparer_scene(Projet(largeur=640, hauteur=360), scene_exemple("graphique"))
+    assert sum(e.finale is not None for e in sp.elements) == 3
+
+
+def test_ia_metteur_en_scene():
+    rep = ('{"scenes": [{"modele": "dialogue", "image": "personne:femme,pensive", "texte": "[clipart:goutte-d-eau] Pourquoi ?"},'
+           '{"modele": "frise", "titre": "Dates", "texte": "1957 : A\\n1969 : B"},'
+           '{"modele": "histogramme", "titre": "G", "texte": "A : 1\\nB : 2"},'
+           '{"modele": "comparaison", "titre": "C", "texte": "[clipart:telephone-portable+non] X\\n[clipart:livres+ok] Y"}]}')
+    p, remarques = projet_depuis_ia(rep)
+    assert [s.modele for s in p.scenes] == ["personnage", "chronologie", "graphique", "comparaison"]
+    assert p.scenes[0].image == "personne:femme,pensive"
+    assert p.scenes[3].texte.startswith("[clipart:telephone-portable+non]")
+    prompt = construire_prompt("x")
+    for mot in ("personne:", "graphique", "proportion", "chronologie", "+ok", "pensive"):
+        assert mot in prompt
+
+
+def test_references_non_fichiers_conservees(tmp_path):
+    p = Projet(scenes=[Scene(image="personne:femme,pensive"), Scene(image="clipart:maison+ok"),
+                       Scene(image="icone:bulb+question")])
+    p.enregistrer(tmp_path / "p.json")
+    q = Projet.charger(tmp_path / "p.json")
+    assert [s.image for s in q.scenes] == ["personne:femme,pensive", "clipart:maison+ok", "icone:bulb+question"]

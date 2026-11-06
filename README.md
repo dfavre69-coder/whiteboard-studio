@@ -10,6 +10,9 @@ Créez des vidéos explicatives « main qui dessine » (*whiteboard animation*) 
 - **Voix off Qwen3-TTS intégrée** : les narrations sont lues par votre voix clonée (ou une voix prédéfinie), puis rattachées aux scènes automatiquement.
 - **Scènes prédéfinies** : titre de chapitre, liste à puces, étapes reliées par des flèches, comparaison, chiffre clé, citation, fin de vidéo. Il suffit de remplir le texte.
 - **Images vectorielles (SVG)** : la main suit exactement chaque tracé du fichier, puis les couleurs (aplats et dégradés simplifiés) apparaissent.
+- **Personnages modulaires** ([Open Peeps](https://openpeeps.com), domaine public) : expression, coiffure, barbe, lunettes, peau, vêtement se décrivent en français (« personne:femme,pensive,lunettes »). Un même personnage garde son apparence d'une scène à l'autre, seule son expression change.
+- **Compositions** : `clipart:maison+piece`, `clipart:telephone-portable+non`… un visuel plus un autre, ou plus une pastille (ok, non, attention, question, hausse, baisse…).
+- **Schémas à partir de vrais chiffres** : graphique en barres, proportion en pictogrammes (« 1 sur 4 »), frise chronologique.
 - **Plus de 1 200 cliparts en couleur** (animaux, objets, aliments, lieux, métiers, émotions…) : la main dessine leurs contours, puis les couleurs apparaissent.
 - **4 800 icônes au trait** en complément, pour les idées abstraites. Recherche en français dans les deux bibliothèques.
 - **Images classiques** : n'importe quelle image (PNG, JPG…) est transformée en tracés, dessinés dans un ordre naturel, puis colorisée si vous le souhaitez.
@@ -66,7 +69,7 @@ Le projet s'enregistre en `.json`. Les chemins des images et sons sont stockés 
 
 ![Assistant IA](docs/assistant.png)
 
-L'IA découpe le texte en scènes, choisit les modèles et les icônes, et écrit la **narration** de chaque scène (le texte de la voix off, distinct des mots clés affichés). L'import est tolérant : bloc ```` ```json ````, virgule en trop, modèle mal orthographié ou icône inexistante sont corrigés automatiquement, et la liste des corrections s'affiche. Sans voix off, la durée de chaque scène est estimée d'après la longueur de sa narration.
+L'IA découpe le texte en scènes et joue le rôle de **metteur en scène** : le prompt lui apprend à choisir le bon modèle (graphique dès qu'il y a des chiffres comparables, frise pour les dates, personnage pour poser une question ou montrer une émotion…), à composer des visuels et à garder les mêmes personnages d'une scène à l'autre. Elle écrit aussi la **narration** de chaque scène (le texte de la voix off, distinct des mots clés affichés). L'import est tolérant : bloc ```` ```json ````, virgule en trop, modèle mal orthographié ou icône inexistante sont corrigés automatiquement, et la liste des corrections s'affiche. Sans voix off, la durée de chaque scène est estimée d'après la longueur de sa narration.
 
 #### Voix off avec Qwen3-TTS
 
@@ -101,6 +104,10 @@ Le prompt est modifiable : `whiteboard/assets/prompt_video.md`.
 | Comparaison | titre | une colonne par ligne (2 ou 3), « VS » entre deux colonnes |
 | Chiffre clé | le chiffre, entouré | sa légende |
 | Citation | l'auteur | la citation |
+| Graphique en barres | titre | une barre par ligne : `Libellé : valeur` |
+| Proportion | « 1 sur 4 » ou « 25 % » | ce qu'elle représente |
+| Frise chronologique | titre | une date par ligne : `[visuel] Date : événement` |
+| Personnage qui parle | titre (facultatif) | contenu de la bulle (texte, ou `[visuel]` puis texte) ; le visuel est le personnage |
 | Fin de vidéo | message de fin | actions (par défaut : Abonnez-vous, J'aime, Commentez, en cliparts) |
 
 Dans le texte des modèles, un visuel peut précéder chaque ligne entre crochets :
@@ -112,6 +119,24 @@ Dans le texte des modèles, un visuel peut précéder chaque ligne entre crochet
 ```
 
 Le bouton **Insérer un visuel…** écrit ce code pour vous sur la ligne du curseur. Toutes les mises en page s'adaptent au format vertical (Shorts).
+
+### Personnages
+
+![Personnages](docs/personnages.png)
+
+Onglet **Personnages** de la bibliothèque : choisissez genre, expression, coiffure, barbe, accessoire, peau et couleur du haut, ou tapez directement `personne:` suivi de mots-clés français, dans n'importe quel ordre :
+
+```text
+personne:femme,pensive,lunettes
+personne:homme,inquiet,barbe,bleu
+personne:âgé,explique,cheveux blancs
+```
+
+Expressions comprises : content, heureux, rieur, calme, pensif, explique, concentré, surpris, inquiet, triste, effrayé, en colère, fatigué, méfiant, amoureux, débordé, malicieux. Ce qui n'est pas précisé est tiré au sort, toujours de la même façon : `personne:femme,lunettes,bleu,triste` puis `personne:femme,lunettes,bleu,heureuse` montrent la même personne. Dans le modèle **Personnage qui parle**, un personnage « pensif » a une bulle de pensée.
+
+### Compositions et pastilles
+
+Un `+` ajoute un second élément dans un coin du premier : un autre visuel en petit (`clipart:ordinateur-portable+cadenas-ferme`), ou une pastille : `ok`, `non`, `attention`, `question`, `plus`, `moins`, `etoile`, `coeur`, `hausse`, `baisse`. La liste **Pastille** de la bibliothèque l'ajoute pour vous. Les compositions marchent partout : champ « Visuel », lignes des modèles, personnages (`personne:homme,inquiet+question`).
 
 ### Cliparts, icônes et images vectorielles
 
@@ -237,4 +262,4 @@ Les vidéos (`*.mp4`) et l'environnement `.venv` sont exclus du dépôt. Les tes
 
 ## Licence
 
-Code sous licence MIT. Police *Patrick Hand* de Patrick Wagesreiter, sous licence SIL Open Font License 1.1. Icônes [Tabler Icons](https://tabler.io/icons) de Paweł Kuna, sous licence MIT (`whiteboard/assets/icones/LICENSE-Tabler.txt`). Cliparts [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) de Microsoft, sous licence MIT, avec les noms français des annotations Unicode CLDR via [emojibase](https://emojibase.dev) (licence MIT) : voir `whiteboard/assets/cliparts/`. La bibliothèque se reconstruit avec `outils/construire_cliparts.py`. Toutes les illustrations de démonstration et la main sont dessinées par le programme.
+Code sous licence MIT. Police *Patrick Hand* de Patrick Wagesreiter, sous licence SIL Open Font License 1.1. Icônes [Tabler Icons](https://tabler.io/icons) de Paweł Kuna, sous licence MIT (`whiteboard/assets/icones/LICENSE-Tabler.txt`). Personnages [Open Peeps](https://openpeeps.com) de Pablo Stanley, dans le domaine public (CC0), via [DiceBear](https://github.com/dicebear/dicebear) (`outils/construire_personnages.mjs`). Cliparts [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) de Microsoft, sous licence MIT, avec les noms français des annotations Unicode CLDR via [emojibase](https://emojibase.dev) (licence MIT) : voir `whiteboard/assets/cliparts/`. La bibliothèque se reconstruit avec `outils/construire_cliparts.py`. Toutes les illustrations de démonstration et la main sont dessinées par le programme.

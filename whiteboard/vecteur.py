@@ -139,20 +139,35 @@ def lire_svg(texte: str) -> list[Chemin]:
 
 
 def _aplatir(chemin, pas: float) -> tuple[list[np.ndarray], list[bool]]:
+    """Polylignes d'un chemin SVG. Chaque « Z » termine un sous-chemin, même sans « M » ensuite
+    (en SVG, le tracé repart alors du début du sous-chemin fermé : trous des formes « evenodd »)."""
     import svgelements as S
 
     sous, fermes = [], []
+
+    def finir(pts, ferme):
+        if len(pts) >= 2 or (len(pts) == 1 and ferme):
+            sous.append(np.array(pts, dtype=np.float64))
+            fermes.append(ferme)
+        elif len(pts) == 1:  # point isolé (« m0 0 » des icônes) : petit segment
+            sous.append(np.array([pts[0], (pts[0][0] + pas, pts[0][1])], dtype=np.float64))
+            fermes.append(False)
+
     for brut in chemin.as_subpaths():
         pts: list[tuple[float, float]] = []
         ferme = False
         for seg in S.Path(brut):
             if isinstance(seg, S.Move):
-                if seg.end is not None:
-                    pts = [(seg.end.x, seg.end.y)]
-            elif isinstance(seg, S.Close):
-                ferme = True
                 if pts:
-                    pts.append(pts[0])
+                    finir(pts, ferme)
+                pts, ferme = ([(seg.end.x, seg.end.y)] if seg.end is not None else []), False
+            elif isinstance(seg, S.Close):
+                if pts:
+                    debut = pts[0]
+                    pts.append(debut)
+                    finir(pts, True)
+                    pts, ferme = [debut], False  # un tracé qui continue repart d'ici
+                continue
             elif isinstance(seg, S.Line):
                 pts.append((seg.end.x, seg.end.y))
             else:
@@ -164,12 +179,8 @@ def _aplatir(chemin, pas: float) -> tuple[list[np.ndarray], list[bool]]:
                 for t in np.linspace(0, 1, n)[1:]:
                     p = seg.point(float(t))
                     pts.append((p.x, p.y))
-        if len(pts) >= 2 or (len(pts) == 1 and ferme):
-            sous.append(np.array(pts, dtype=np.float64))
-            fermes.append(ferme)
-        elif len(pts) == 1:  # point isolé (« m0 0 » des icônes) : petit segment
-            sous.append(np.array([pts[0], (pts[0][0] + pas, pts[0][1])], dtype=np.float64))
-            fermes.append(False)
+        if len(pts) > 1:
+            finir(pts, ferme)
     return sous, fermes
 
 
@@ -273,21 +284,185 @@ def nom_icone(source: str) -> str:
     return source[len(PREFIXE_ICONE):].strip()
 
 
-@lru_cache(maxsize=256)
-def charger_vecteur(source: str) -> tuple[Chemin, ...]:
-    """Lit un fichier .svg, une icône (« icone:nom ») ou un clipart (« clipart:nom »)."""
+PASTILLES = {
+    # nom : (couleur du disque, symbole) — symboles dessinés dans un carré unité
+    "ok": ((67, 176, 71), "coche"), "oui": ((67, 176, 71), "coche"), "valide": ((67, 176, 71), "coche"),
+    "non": ((229, 57, 53), "croix"), "faux": ((229, 57, 53), "croix"), "interdit": ((229, 57, 53), "croix"),
+    "attention": ((251, 140, 0), "exclamation"), "alerte": ((251, 140, 0), "exclamation"),
+    "question": ((30, 136, 229), "question"), "plus": ((67, 176, 71), "plus"), "moins": ((229, 57, 53), "moins"),
+    "etoile": ((253, 216, 53), "etoile"), "coeur": ((236, 64, 122), "coeur"), "hausse": ((67, 176, 71), "hausse"),
+    "baisse": ((229, 57, 53), "baisse"),
+}
+
+
+def _cercle(cx, cy, r, n=48):
+    t = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    pts = np.stack([cx + r * np.cos(t), cy + r * np.sin(t)], axis=1)
+    return np.vstack([pts, pts[:1]])
+
+
+def chemins_pastille(nom: str) -> list[Chemin]:
+    """Pastille ronde (dans le carré 0-1) : disque blanc, disque coloré, symbole blanc."""
+    couleur, symbole = PASTILLES[nom]
+    blanc = (255, 255, 255)
+    res = [Chemin([_cercle(.5, .5, .5)], [True], None, 0, blanc),
+           Chemin([_cercle(.5, .5, .44)], [True], (30, 30, 30), .05, couleur)]
+    trait = lambda pts: Chemin([np.array(pts, float)], [False], blanc, .11, None)  # noqa: E731
+    if symbole == "coche":
+        res.append(trait([(.3, .52), (.44, .66), (.71, .37)]))
+    elif symbole == "croix":
+        res += [trait([(.33, .33), (.67, .67)]), trait([(.67, .33), (.33, .67)])]
+    elif symbole == "plus":
+        res += [trait([(.5, .28), (.5, .72)]), trait([(.28, .5), (.72, .5)])]
+    elif symbole == "moins":
+        res.append(trait([(.28, .5), (.72, .5)]))
+    elif symbole == "exclamation":
+        res += [trait([(.5, .26), (.5, .58)]), trait([(.5, .72), (.5, .73)])]
+    elif symbole == "question":
+        t = np.linspace(np.pi * 1.05, np.pi * 2.35, 20)
+        arc = [(.5 + .15 * np.cos(a), .4 + .13 * np.sin(a)) for a in t]
+        res += [trait(arc + [(.5, .58)]), trait([(.5, .73), (.5, .74)])]
+    elif symbole in ("hausse", "baisse"):
+        pts = [(.28, .66), (.45, .5), (.56, .58), (.72, .36)] if symbole == "hausse" else \
+              [(.28, .36), (.45, .52), (.56, .44), (.72, .66)]
+        res.append(trait(pts))
+        fin = pts[-1]
+        res.append(trait([(fin[0] - .13, fin[1] + (0 if symbole == "hausse" else -.0)), fin,
+                          (fin[0], fin[1] + (.13 if symbole == "hausse" else -.13))]))
+    elif symbole == "etoile":
+        t = np.linspace(-np.pi / 2, 1.5 * np.pi, 11)
+        r = np.where(np.arange(11) % 2 == 0, .3, .13)
+        res.append(Chemin([np.stack([.5 + r * np.cos(t), .52 + r * np.sin(t)], axis=1)], [True], blanc, .04, blanc))
+    elif symbole == "coeur":
+        t = np.linspace(0, 2 * np.pi, 60)
+        x = 16 * np.sin(t) ** 3
+        y = -(13 * np.cos(t) - 5 * np.cos(2 * t) - 2 * np.cos(3 * t) - np.cos(4 * t))
+        res.append(Chemin([np.stack([.5 + x / 48, .52 + y / 48], axis=1)], [True], blanc, .03, blanc))
+    return res
+
+
+def _transformer(chemins, echelle: float, dx: float, dy: float) -> list[Chemin]:
+    return [Chemin([s * echelle + (dx, dy) for s in c.sous_chemins], c.fermes, c.trait, c.epaisseur * echelle,
+                   c.remplissage, c.trait_encre) for c in chemins]
+
+
+def _boite(chemins) -> tuple[float, float, float, float]:
+    tous = np.concatenate([s for c in chemins for s in c.sous_chemins])
+    return (*tous.min(axis=0), *tous.max(axis=0))
+
+
+def rogner_chemins(chemins, x0, y0, x1, y1) -> list[Chemin]:
+    """Découpe les formes dans un rectangle (cadrage d'un SVG plus grand que sa vue)."""
+    def couper(poly, garde, inter):
+        res = []
+        for i in range(len(poly)):
+            a, b = poly[i - 1], poly[i]
+            if garde(b):
+                if not garde(a):
+                    res.append(inter(a, b))
+                res.append(b)
+            elif garde(a):
+                res.append(inter(a, b))
+        return res
+
+    def inter_x(x):
+        return lambda a, b: (x, a[1] + (b[1] - a[1]) * (x - a[0]) / ((b[0] - a[0]) or 1e-9))
+
+    def inter_y(y):
+        return lambda a, b: (a[0] + (b[0] - a[0]) * (y - a[1]) / ((b[1] - a[1]) or 1e-9), y)
+
+    sortie = []
+    for c in chemins:
+        sous, fermes = [], []
+        for s, ferme in zip(c.sous_chemins, c.fermes):
+            if ferme or c.remplissage is not None:
+                poly = [tuple(p) for p in s]
+                for garde, inter in ((lambda p: p[0] >= x0, inter_x(x0)), (lambda p: p[0] <= x1, inter_x(x1)),
+                                     (lambda p: p[1] >= y0, inter_y(y0)), (lambda p: p[1] <= y1, inter_y(y1))):
+                    poly = couper(poly, garde, inter) if poly else poly
+                if len(poly) >= 3:
+                    sous.append(np.array(poly + poly[:1], float))
+                    fermes.append(True)
+            else:
+                dedans = (s[:, 0] >= x0) & (s[:, 0] <= x1) & (s[:, 1] >= y0) & (s[:, 1] <= y1)
+                if dedans.sum() >= 2:
+                    sous.append(s[dedans])
+                    fermes.append(False)
+        if sous:
+            sortie.append(Chemin(sous, fermes, c.trait, c.epaisseur, c.remplissage, c.trait_encre))
+    return sortie
+
+
+def _charger_simple(source: str) -> list[Chemin]:
+    from .personnages import donnees, est_personne, svg_personne
+
+    if est_personne(source):
+        vue = [float(v) for v in donnees()["viewBox"].split()]
+        return rogner_chemins(lire_svg(svg_personne(source)), vue[0], vue[1], vue[0] + vue[2], vue[1] + vue[3])
     if est_icone(source):
-        return tuple(lire_svg(svg_icone(nom_icone(source))))
+        return lire_svg(svg_icone(nom_icone(source)))
     if est_clipart(source):
         info = catalogue_cliparts().get(nom_clipart(source))
         if info is None:
             raise KeyError(f"Clipart inconnu : « {nom_clipart(source)} »")
-        return tuple(lire_svg(info["s"]))
-    return tuple(lire_svg(Path(source).read_text(encoding="utf-8", errors="replace")))
+        return lire_svg(info["s"])
+    return lire_svg(Path(source).read_text(encoding="utf-8", errors="replace"))
+
+
+def _source_partie(partie: str) -> str | None:
+    """Élément ajouté après « + » : pastille, ou autre visuel (clipart de préférence)."""
+    p = partie.strip()
+    if not p:
+        return None
+    if p.startswith((PREFIXE_ICONE, PREFIXE_CLIPART, "personne:")) or p.lower().endswith(".svg"):
+        return p
+    if p in catalogue_cliparts():
+        return PREFIXE_CLIPART + p
+    if p in catalogue_icones():
+        return PREFIXE_ICONE + p
+    trouves = chercher_cliparts(p, limite=1)
+    return PREFIXE_CLIPART + trouves[0] if trouves else None
+
+
+@lru_cache(maxsize=256)
+def charger_vecteur(source: str) -> tuple[Chemin, ...]:
+    """Lit un visuel vectoriel : fichier .svg, « icone:nom », « clipart:nom », « personne:… »,
+    ou une composition « visuel+visuel » / « visuel+pastille » (ex. clipart:maison+ok)."""
+    parties = [p.strip() for p in source.split("+")] if "+" in source else [source]
+    if len(parties) > 1 and not parties[0].lower().endswith(".svg") and Path(source).exists():
+        parties = [source]  # un vrai fichier dont le nom contient « + »
+    base = _charger_simple(parties[0])
+    if len(parties) == 1 or not base:
+        return tuple(base)
+    x0, y0, x1, y1 = _boite(base)
+    taille = max(x1 - x0, y1 - y0)
+    resultat = list(base)
+    coins = [(1.0, 1.0), (0.0, 1.0), (1.0, 0.0), (0.0, 0.0)]  # bas droite, bas gauche, haut droite, haut gauche
+    for n, partie in enumerate(parties[1:]):
+        cle = _sans_accents(partie)
+        if cle in PASTILLES:
+            ajout, cote = chemins_pastille(cle), 0.38
+        else:
+            src = _source_partie(partie)
+            if src is None:
+                continue
+            ajout, cote = list(_charger_simple(src)), 0.5
+            if not ajout:
+                continue
+        ax0, ay0, ax1, ay1 = _boite(ajout)
+        e = taille * cote / max(ax1 - ax0, ay1 - ay0, 1e-9)
+        cx, cy = coins[n % 4]
+        # l'élément ajouté déborde un peu du coin, comme un autocollant
+        px = x0 + cx * (x1 - x0) - (ax1 - ax0) * e * (0.75 if cx else 0.25)
+        py = y0 + cy * (y1 - y0) - (ay1 - ay0) * e * (0.75 if cy else 0.25)
+        resultat += _transformer(ajout, e, px - ax0 * e, py - ay0 * e)
+    return tuple(resultat)
 
 
 def est_vectoriel(source: str) -> bool:
-    return est_icone(source) or est_clipart(source) or source.lower().endswith(".svg")
+    base = source.split("+")[0].strip() if "+" in source and not Path(source).exists() else source
+    return (est_icone(base) or est_clipart(base) or base.startswith("personne:")
+            or base.lower().endswith(".svg"))
 
 
 # Recherche en français : quelques mots courants traduits vers les mots-clés anglais.
@@ -396,11 +571,12 @@ class VecteurRendu:
     points: np.ndarray               # (N, 3) : x, y, rayon — parcours de la main
     largeur: int
     hauteur: int
+    origine: tuple[float, float] = (0.0, 0.0)   # position du coin, avec fixe=True
 
 
 def rendre_vecteur(chemins: list[Chemin] | tuple[Chemin, ...], largeur_max: int, hauteur_max: int,
                    epaisseur_min: float, epaisseur_max: float, fond: tuple[int, int, int],
-                   encre: tuple[int, int, int], couleur: bool = True) -> VecteurRendu | None:
+                   encre: tuple[int, int, int], couleur: bool = True, fixe: bool = False) -> VecteurRendu | None:
     """Met le dessin à l'échelle de la boîte, le rastérise et calcule le parcours."""
     if not chemins:
         return None
@@ -411,8 +587,11 @@ def rendre_vecteur(chemins: list[Chemin] | tuple[Chemin, ...], largeur_max: int,
     w_doc = max(1e-6, x1 - x0 + 2 * bord_doc)
     h_doc = max(1e-6, y1 - y0 + 2 * bord_doc)
     marge = epaisseur_max  # place pour l'épaisseur des traits dessinés
-    f = min((largeur_max - 2 * marge) / w_doc, (hauteur_max - 2 * marge) / h_doc)
-    f = max(f, 1e-6)
+    if fixe:  # coordonnées déjà à l'échelle de l'écran
+        f = 1.0
+    else:
+        f = min((largeur_max - 2 * marge) / w_doc, (hauteur_max - 2 * marge) / h_doc)
+        f = max(f, 1e-6)
     W = max(2, int(math.ceil(w_doc * f + 2 * marge)))
     H = max(2, int(math.ceil(h_doc * f + 2 * marge)))
     ox, oy = marge - (x0 - bord_doc) * f, marge - (y0 - bord_doc) * f
@@ -481,7 +660,7 @@ def rendre_vecteur(chemins: list[Chemin] | tuple[Chemin, ...], largeur_max: int,
         xs = np.clip(pts[:, 0].astype(int), 0, W - 1)
         ys = np.clip(pts[:, 1].astype(int), 0, H - 1)
         pts = pts[a[ys, xs] > 0.15]
-    return VecteurRendu(a, finale, pts, W, H)
+    return VecteurRendu(a, finale, pts, W, H, (float(x0 - bord_doc - marge), float(y0 - bord_doc - marge)))
 
 
 def _ligne(d: ImageDraw.ImageDraw, pts: np.ndarray, largeur: float, fill) -> None:

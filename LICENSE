@@ -30,3 +30,6 @@ Copyright (c) 2020-2026 Paweł Kuna) : voir LICENSE-Tabler.txt dans ce dossier.
 Les cliparts de whiteboard/assets/cliparts proviennent de Fluent Emoji (MIT,
 Copyright (c) Microsoft Corporation) : voir LICENSE-FluentEmoji.txt. Leurs noms
 français viennent d'emojibase-data (MIT) : voir LICENSE-emojibase-noms-francais.txt.
+
+Les personnages de whiteboard/assets/personnages sont tirés d'Open Peeps de
+Pablo Stanley (CC0 1.0, domaine public), extraits du paquet @dicebear/open-peeps.

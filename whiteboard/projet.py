@@ -85,7 +85,7 @@ class Projet:
 
 
 def _relatif(chemin: str, dossier: Path) -> str:
-    if not chemin or chemin.startswith(("icone:", "clipart:")):
+    if not chemin or chemin.startswith(("icone:", "clipart:", "personne:")):
         return chemin or ""
     try:
         return Path(os.path.relpath(Path(chemin).resolve(), dossier)).as_posix()
@@ -94,7 +94,7 @@ def _relatif(chemin: str, dossier: Path) -> str:
 
 
 def _absolu(chemin: str, dossier: Path) -> str:
-    if not chemin or chemin.startswith(("icone:", "clipart:")):
+    if not chemin or chemin.startswith(("icone:", "clipart:", "personne:")):
         return chemin or ""
     p = Path(chemin)
     return str(p if p.is_absolute() else (dossier / p).resolve())

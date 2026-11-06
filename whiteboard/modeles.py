@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .projet import Scene
-from .vecteur import PREFIXE_ICONE
+from .vecteur import PREFIXE_ICONE, Chemin
 
 
 @dataclass(frozen=True)
@@ -61,6 +61,25 @@ MODELES: dict[str, InfoModele] = {
         "Auteur", "Le texte de la citation",
         dict(titre="Albert Einstein", texte="La logique vous mènera d'un point A à un point B. "
                                             "L'imagination vous mènera partout.")),
+    "graphique": InfoModele(
+        "Graphique en barres", "Des barres dessinées à partir de vrais chiffres, avec leurs valeurs.",
+        "Titre du graphique", "Une barre par ligne : Libellé : valeur (ex. 2020 : 45 %)",
+        dict(titre="Abonnés de la chaîne", texte="2023 : 1 200\n2024 : 3 500\n2025 : 8 900")),
+    "proportion": InfoModele(
+        "Proportion en pictogrammes", "« 3 sur 10 » montré par des silhouettes, dont certaines colorées.",
+        "La proportion (ex. 3 sur 10, ou 30 %)", "Ce qu'elle représente",
+        dict(titre="1 sur 4", texte="des Français pratique un instrument de musique")),
+    "chronologie": InfoModele(
+        "Frise chronologique", "Des dates reliées sur une ligne du temps.",
+        "Titre de la frise", "Une date par ligne : Date : événement (ou [visuel] Date : événement)",
+        dict(titre="La conquête spatiale", texte="[clipart:satellite] 1957 : Spoutnik\n"
+                                                "[clipart:astronaute] 1969 : Premiers pas sur la Lune\n"
+                                                "[clipart:fusee] 1998 : Station spatiale")),
+    "personnage": InfoModele(
+        "Personnage qui parle", "Un personnage avec une bulle de parole ou de pensée.",
+        "Titre (facultatif)", "Contenu de la bulle : texte, ou [visuel] puis texte",
+        dict(titre="", image="personne:femme,pensive,lunettes",
+             texte="Et si on automatisait tout ça ?")),
     "fin": InfoModele(
         "Fin de vidéo", "Remerciements et appel à l'action (abonnement, j'aime, commentaire).",
         "Message de fin", "Actions, une par ligne : [icône] Libellé (vide = actions par défaut)",
@@ -81,7 +100,7 @@ def analyser_items(texte: str) -> list[tuple[str | None, str]]:
         m = re.match(r"^\[([^\]]+)\]\s*(.*)$", ligne)
         if m:
             ref, ligne = m.group(1).strip(), m.group(2).strip()
-            if ref.startswith(("icone:", "clipart:")) or re.search(r"[\\/]|\.(svg|png|jpe?g|webp|bmp|gif)$", ref, re.I):
+            if ref.startswith(("icone:", "clipart:", "personne:")) or re.search(r"[\\/]|\.(svg|png|jpe?g|webp|bmp|gif)$", ref, re.I):
                 visuel = ref
             else:
                 visuel = PREFIXE_ICONE + ref
@@ -124,7 +143,7 @@ class Crayon:
     def fleche(self, a, b) -> list[np.ndarray]:
         a, b = np.asarray(a, float), np.asarray(b, float)
         long = float(np.hypot(*(b - a)))
-        corps = self.ligne(a, b, courbure=long * 0.06 * self.rng.choice([-1, 1]))
+        corps = self.ligne(a, b, courbure=min(long * 0.06, self.a * 4) * self.rng.choice([-1, 1]))
         d = corps[-1] - corps[-6]
         ang = math.atan2(d[1], d[0])
         tete = min(long * 0.35, self.a * 9)
@@ -463,10 +482,285 @@ def modele_fin(fab, sc: Scene):
     return elements
 
 
+PALETTE = [(91, 141, 239), (242, 166, 90), (108, 194, 139), (232, 105, 125), (155, 126, 222), (76, 195, 201),
+           (246, 205, 76), (141, 153, 174)]
+NOMBRE = r"(-?\d[\d\s\u202f\u00a0]*(?:[.,]\d+)?)"
+
+
+def _nombre(texte: str) -> float | None:
+    m = re.search(NOMBRE, texte)
+    if not m:
+        return None
+    try:
+        return float(re.sub(r"[\s\u202f\u00a0]", "", m.group(1)).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _rectangle_tremble(cr: Crayon, x0, y0, x1, y1) -> np.ndarray:
+    pts = np.concatenate([cr.ligne((x0, y1), (x0, y0)), cr.ligne((x0, y0), (x1, y0))[1:],
+                          cr.ligne((x1, y0), (x1, y1))[1:], cr.ligne((x1, y1), (x0, y1))[1:]])
+    return np.vstack([pts, pts[:1]])
+
+
+def _forme(points, remplissage, ep) -> Chemin:
+    return Chemin([np.asarray(points, float)], [True], (30, 30, 30), ep, remplissage, trait_encre=True)
+
+
+def modele_graphique(fab, sc: Scene):
+    W, H, R = fab.W, fab.H, fab.R
+    cr = _crayon(fab, sc)
+    elements = []
+    el, haut = _titre_haut(fab, sc.titre)
+    elements.append(el)
+    donnees = []
+    for _, ligne in analyser_items(sc.texte)[:8]:
+        if ":" in ligne:
+            libelle, valeur = ligne.rsplit(":", 1)
+        else:
+            m = re.search(NOMBRE, ligne)
+            libelle, valeur = (ligne[:m.start()], ligne[m.start():]) if m else (ligne, "")
+        v = _nombre(valeur)
+        if v is not None:
+            donnees.append((libelle.strip(), valeur.strip(), v))
+    if not donnees:
+        return elements + [fab.texte("(ajoutez des lignes « Libellé : valeur »)", R * 0.05, W * 0.8)
+                           .placer(cx=W / 2, cy=H / 2)]
+    n = len(donnees)
+    t_lab, t_val = min(R * 0.055, (W - 2 * fab.mx) / n * 0.2), R * 0.05
+    bas = H - fab.my - t_lab * 2.6
+    x0, x1 = fab.mx + R * 0.04, W - fab.mx
+    hmax = bas - haut - t_val * 1.8
+    elements.append(fab.traits([cr.ligne((x0, haut + t_val), (x0, bas)), cr.ligne((x0, bas), (x1, bas))]))
+    vmax = max(abs(v) for *_, v in donnees) or 1
+    col = (x1 - x0) / n
+    larg = col * 0.58
+    for i, (libelle, brut, v) in enumerate(donnees):
+        cx = x0 + col * (i + 0.5)
+        h = max(fab.trait * 2, hmax * abs(v) / vmax)
+        barre = _forme(_rectangle_tremble(cr, cx - larg / 2, bas - h, cx + larg / 2, bas), PALETTE[i % len(PALETTE)],
+                       fab.trait)
+        elements.append(fab.dessin([barre]))
+        val = fab.texte(brut, t_val, col)
+        if val is not None:
+            elements.append(val.placer(cx=cx, y=bas - h - val.hauteur - R * 0.005))
+        lab = fab.texte(libelle, t_lab, col * 0.95, lignes_max=2)
+        if lab is not None:
+            elements.append(lab.placer(cx=cx, y=bas + R * 0.01))
+    return elements
+
+
+def _silhouette(cx, cy, s, couleur, ep) -> list[Chemin]:
+    """Pictogramme de personne (tête + buste) dans un carré de côté s centré en (cx, cy)."""
+    t = np.linspace(0, 2 * np.pi, 40)
+    tete = np.stack([cx + s * .17 * np.cos(t), cy - s * .22 + s * .17 * np.sin(t)], axis=1)
+    a = np.linspace(np.pi, 2 * np.pi, 30)
+    epaules = np.stack([cx + s * .32 * np.cos(a), cy + s * .45 + s * .42 * np.sin(a)], axis=1)
+    buste = np.vstack([epaules, [[cx + s * .32, cy + s * .45], [cx - s * .32, cy + s * .45]], epaules[:1]])
+    return [_forme(np.vstack([tete, tete[:1]]), couleur, ep), _forme(buste, couleur, ep)]
+
+
+def modele_proportion(fab, sc: Scene):
+    W, H, R = fab.W, fab.H, fab.R
+    elements = []
+    source = f"{sc.titre} {sc.texte}"
+    m = re.search(r"(\d+)\s*(?:sur|/|personnes? sur)\s*(\d+)", source)
+    if m:
+        x, y = int(m.group(1)), int(m.group(2))
+    else:
+        p = re.search(r"(\d+(?:[.,]\d+)?)\s*%", source)
+        x, y = (round(float(p.group(1).replace(",", ".")) / 10), 10) if p else (1, 4)
+    if y > 20:  # au-delà, on ramène à 10 silhouettes
+        x, y = round(x * 10 / y), 10
+    x = max(0, min(x, y))
+    el, haut = _titre_haut(fab, sc.titre or f"{x} sur {y}", R * 0.12)
+    elements.append(el)
+    legende = fab.texte(sc.texte, R * 0.065, W - 2 * fab.mx, lignes_max=2)
+    bas = H - fab.my - (legende.hauteur + R * 0.04 if legende else 0)
+    cols = y if y <= 10 else (y + 1) // 2
+    lignes = 1 if y <= 10 else 2
+    if fab.vertical and y > 5:
+        cols, lignes = 5, (y + 4) // 5
+    s = min((W - 2 * fab.mx) / cols, (bas - haut) / lignes * 0.9, R * 0.34)
+    total_l = s * cols
+    for i in range(y):
+        r_, c_ = divmod(i, cols)
+        cx = (W - total_l) / 2 + s * (c_ + 0.5)
+        cy = haut + ((bas - haut) - s * lignes) / 2 + s * (r_ + 0.5)
+        couleur = PALETTE[3] if i < x else (222, 222, 222)
+        elements.append(fab.dessin(_silhouette(cx, cy, s * 0.9, couleur, fab.trait)))
+    if legende is not None:
+        elements.append(legende.placer(cx=W / 2, y=bas + R * 0.03))
+    return elements
+
+
+def modele_chronologie(fab, sc: Scene):
+    W, H, R = fab.W, fab.H, fab.R
+    cr = _crayon(fab, sc)
+    elements = []
+    el, haut = _titre_haut(fab, sc.titre)
+    elements.append(el)
+    items = []
+    for visuel, ligne in analyser_items(sc.texte)[:6]:
+        date, _, evenement = ligne.partition(":")
+        items.append((visuel, date.strip(), evenement.strip()))
+    if not items:
+        return elements
+    n = len(items)
+    if not fab.vertical:
+        y_axe = haut + (H - fab.my - haut) * 0.52
+        x0, x1 = fab.mx, W - fab.mx
+        elements.append(fab.traits(cr.fleche((x0, y_axe), (x1, y_axe))))
+        col = (x1 - x0 - R * 0.05) / n
+        for i, (visuel, date, evt) in enumerate(items):
+            cx = x0 + col * (i + 0.5)
+            elements.append(fab.dessin([_forme(_cercle_plein(cx, y_axe, R * 0.018), PALETTE[i % len(PALETTE)],
+                                               fab.trait)]))
+            d = fab.texte(date, R * 0.06, col * 0.95)
+            if d is not None:
+                elements.append(d.placer(cx=cx, y=y_axe - R * 0.03 - d.hauteur))
+            if visuel:
+                taille = min(col * 0.6, (y_axe - haut) - (d.hauteur if d else 0) - R * 0.06)
+                vis = _visuel_centre(fab, visuel, cx, (d.y if d else y_axe) - taille / 2 - R * 0.01, taille, taille)
+                if vis is not None:
+                    elements.append(vis)
+            e = fab.texte(evt, R * 0.045, col * 0.92, lignes_max=3)
+            if e is not None:
+                elements.append(e.placer(cx=cx, y=y_axe + R * 0.035))
+    else:
+        x_axe = fab.mx + R * 0.12
+        y0, y1 = haut, H - fab.my
+        elements.append(fab.traits(cr.fleche((x_axe, y0), (x_axe, y1))))
+        ligne = (y1 - y0 - R * 0.05) / n
+        for i, (visuel, date, evt) in enumerate(items):
+            cy = y0 + ligne * (i + 0.5)
+            elements.append(fab.dessin([_forme(_cercle_plein(x_axe, cy, R * 0.022), PALETTE[i % len(PALETTE)],
+                                               fab.trait)]))
+            d = fab.texte(date, R * 0.07, W - x_axe - fab.mx, aligne="gauche")
+            e = fab.texte(evt, R * 0.055, W - x_axe - fab.mx - R * 0.05, lignes_max=2, aligne="gauche")
+            hauteur = (d.hauteur if d else 0) + (e.hauteur if e else 0)
+            y = cy - hauteur / 2
+            if d is not None:
+                elements.append(d.placer(x=x_axe + R * 0.05, y=y))
+                y += d.hauteur
+            if e is not None:
+                elements.append(e.placer(x=x_axe + R * 0.05, y=y))
+    return elements
+
+
+def _cercle_plein(cx, cy, r):
+    t = np.linspace(0, 2 * np.pi, 36)
+    pts = np.stack([cx + r * np.cos(t), cy + r * np.sin(t)], axis=1)
+    return np.vstack([pts, pts[:1]])
+
+
+def _bulle(cr: Crayon, x0, y0, x1, y1, pointe, pensee: bool) -> list[np.ndarray]:
+    """Contour de bulle (parole : rectangle arrondi + pointe ; pensée : nuage + petites bulles)."""
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    rx, ry = (x1 - x0) / 2, (y1 - y0) / 2
+    if pensee:
+        t = np.linspace(0, 2 * np.pi, 160)
+        festons = 1 + 0.045 * np.abs(np.sin(t * 7))
+        contour = np.stack([cx + rx * np.cos(t) * festons, cy + ry * np.sin(t) * festons], axis=1)
+        traits = [contour]
+        px, py = pointe
+        bx, by = cx + (px - cx) * 0.55, cy + ry * 0.95
+        for k, f in enumerate((0.35, 0.65, 0.88)):
+            x = bx + (px - bx) * f
+            y = by + (py - by) * f
+            r = ry * (0.16 - 0.04 * k)
+            tt = np.linspace(0, 2 * np.pi, 30)
+            traits.append(np.stack([x + r * np.cos(tt), y + r * np.sin(tt)], axis=1))
+        return traits
+    r = min(rx, ry) * 0.35
+    coins = []
+    for (ax, ay, a0) in ((x1 - r, y0 + r, -np.pi / 2), (x1 - r, y1 - r, 0), (x0 + r, y1 - r, np.pi / 2),
+                         (x0 + r, y0 + r, np.pi)):
+        a = np.linspace(a0, a0 + np.pi / 2, 10)
+        coins.append(np.stack([ax + r * np.cos(a), ay + r * np.sin(a)], axis=1))
+    contour = np.vstack(coins + [coins[0][:1]])
+    # pointe dirigée vers le personnage, partant du bord le plus proche
+    px, py = pointe
+    if py > y1 + ry * 0.3:                     # personnage en dessous
+        bx_, by_ = min(max(px, x0 + r * 2), x1 - r * 2), y1 - 1
+        larg = (min(rx * 0.12, r), 0)
+    elif px < x0:                               # personnage à gauche
+        bx_, by_ = x0 + 1, min(max(py, y0 + r * 2), y1 - r * 1.5)
+        larg = (0, min(ry * 0.18, r))
+    else:                                       # à droite
+        bx_, by_ = x1 - 1, min(max(py, y0 + r * 2), y1 - r * 1.5)
+        larg = (0, min(ry * 0.18, r))
+    # longueur de la pointe limitée : elle désigne le personnage sans le toucher
+    dx, dy = px - bx_, py - by_
+    d = math.hypot(dx, dy) or 1
+    lmax = max(rx, ry) * 0.6
+    ex, ey = bx_ + dx * min(1, lmax / d), by_ + dy * min(1, lmax / d)
+    q = [(bx_ - larg[0], by_ - larg[1]), (ex, ey), (bx_ + larg[0], by_ + larg[1])]
+    return [cr._tremble(contour, 0.4), np.array(q, float)]
+
+
+def modele_personnage(fab, sc: Scene):
+    W, H, R = fab.W, fab.H, fab.R
+    cr = _crayon(fab, sc)
+    elements = []
+    haut = fab.my
+    if sc.titre.strip():
+        el, haut = _titre_haut(fab, sc.titre)
+        elements.append(el)
+    source = sc.image.strip() or "personne:" + (sc.titre or sc.texte or "content")[:20]
+    items = analyser_items(sc.texte)
+    visuel_bulle = items[0][0] if items else None
+    texte_bulle = "\n".join(l for _, l in items).strip()
+    pensee = bool(re.search(r"pensi|pense|reflech|reve|medit", source.lower())) or texte_bulle.startswith(("…", "..."))
+    if fab.vertical:
+        boite_p = (fab.mx, H * 0.52, W - 2 * fab.mx, H * 0.48 - fab.my)
+        zone_b = (fab.mx, haut + R * 0.02, W - fab.mx, H * 0.47)
+    else:
+        boite_p = (fab.mx, haut + (H - haut) * 0.18, W * 0.42 - fab.mx, H - fab.my - haut - (H - haut) * 0.18)
+        zone_b = (W * 0.46, haut + R * 0.02, W - fab.mx, H * 0.66)
+    bx, by, bw, bh = boite_p
+    perso = fab.visuel(source, bw, bh)
+    if perso is not None:
+        perso.placer(cx=bx + bw / 2, y=by + bh - perso.hauteur)
+        elements.append(perso)
+        tete = (perso.x + perso.largeur * (0.62 if not fab.vertical else 0.5), perso.y + perso.hauteur * 0.12)
+    else:
+        tete = (bx + bw / 2, by)
+    # contenu de la bulle
+    zx0, zy0, zx1, zy1 = zone_b
+    larg_max = (zx1 - zx0) * 0.8
+    contenu = []
+    if visuel_bulle:
+        v = fab.visuel(visuel_bulle, larg_max * 0.5, (zy1 - zy0) * 0.42)
+        if v is not None:
+            contenu.append(v)
+    t = fab.texte(texte_bulle, R * 0.06, larg_max, lignes_max=4)
+    if t is not None:
+        contenu.append(t)
+    if not contenu:
+        return elements
+    h_contenu = sum(c.hauteur for c in contenu) + R * 0.02 * (len(contenu) - 1)
+    l_contenu = max(c.largeur for c in contenu)
+    marge = R * (0.07 if pensee else 0.05)
+    cxb = (zx0 + zx1) / 2
+    cyb = zy0 + (zy1 - zy0) / 2
+    x0, x1 = cxb - l_contenu / 2 - marge, cxb + l_contenu / 2 + marge
+    y0, y1 = cyb - h_contenu / 2 - marge, cyb + h_contenu / 2 + marge
+    pointe = (tete[0] + (R * 0.06 if not fab.vertical else 0), tete[1] - R * 0.02) if not fab.vertical else \
+        (tete[0], tete[1] - R * 0.04)
+    elements.append(fab.traits(_bulle(cr, x0, y0, x1, y1, pointe, pensee)))
+    y = cyb - h_contenu / 2
+    for c in contenu:
+        elements.append(c.placer(cx=cxb, y=y))
+        y += c.hauteur + R * 0.02
+    return elements
+
+
 FONCTIONS = {
     "libre": modele_libre, "titre": modele_titre, "liste": modele_liste, "etapes": modele_etapes,
     "comparaison": modele_comparaison, "chiffre": modele_chiffre, "citation": modele_citation,
-    "fin": modele_fin,
+    "fin": modele_fin, "graphique": modele_graphique, "proportion": modele_proportion,
+    "chronologie": modele_chronologie, "personnage": modele_personnage,
 }
 
 
