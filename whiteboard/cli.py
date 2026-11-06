@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tt = sous.add_parser("tts", help="générer les voix off des narrations avec Qwen3-TTS")
     tt.add_argument("projet")
-    tt.add_argument("--toutes", action="store_true", help="regénérer aussi les voix existantes")
+    tt.add_argument("--toutes", action="store_true", help="regénérer aussi les voix à jour")
 
     args = ap.parse_args(argv)
 
@@ -166,8 +166,12 @@ def main(argv: list[str] | None = None) -> int:
         p = Projet.charger(chemin)
         dossier = chemin.parent / f"{chemin.stem}_voix"
         largeur = max(2, len(str(len(p.scenes))))
-        phrases = [tts.Phrase(s.narration.strip(), str(dossier / f"{i + 1:0{largeur}d}.wav"), i)
-                   for i, s in enumerate(p.scenes) if s.narration.strip() and (args.toutes or not s.audio)]
+        r = Reglages.charger()
+        empreintes = {i: tts.empreinte(s.narration, r) for i, s in enumerate(p.scenes) if s.narration.strip()}
+        phrases = [tts.Phrase(p.scenes[i].narration.strip(), str(dossier / f"{i + 1:0{largeur}d}.wav"), i)
+                   for i in empreintes
+                   if args.toutes or not (p.scenes[i].audio and Path(p.scenes[i].audio).exists()
+                                          and p.scenes[i].audio_empreinte == empreintes[i])]
 
         def afficher(msg):
             if msg.get("etat") == "fait":
@@ -175,8 +179,9 @@ def main(argv: list[str] | None = None) -> int:
             elif msg.get("message"):
                 print(msg["message"])
 
-        for f in tts.generer(phrases, Reglages.charger(), afficher):
-            p.scenes[f["cle"]].audio, p.scenes[f["cle"]].caler_sur_audio = f["fichier"], True
+        for f in tts.generer(phrases, r, afficher, persistant=False):
+            sc = p.scenes[f["cle"]]
+            sc.audio, sc.caler_sur_audio, sc.audio_empreinte = f["fichier"], True, empreintes[f["cle"]]
         p.enregistrer(chemin)
         print(f"{len(phrases)} voix off générée(s) dans {dossier} ; projet enregistré.")
         return 0

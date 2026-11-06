@@ -714,7 +714,11 @@ class Application(tk.Tk):
             self._arret = None
 
     def generer_voix(self, indices: list[int] | None = None) -> None:
-        """Synthèse des narrations avec Qwen3-TTS, puis rattachement aux scènes."""
+        """Synthèse des narrations avec Qwen3-TTS, puis rattachement aux scènes.
+
+        Sans `indices` : seules les voix manquantes ou dont la narration (ou la voix) a changé
+        sont générées. Avec `indices` (bouton « Générer » d'une scène) : toujours regénérée.
+        """
         from . import tts
         if self._arret is not None:
             return
@@ -731,18 +735,18 @@ class Application(tk.Tk):
             messagebox.showinfo(TITRE_APP, "Aucune narration à lire. Remplissez le champ « Narration » "
                                 "(ou utilisez l'Assistant IA).")
             return
+        empreintes = {i: tts.empreinte(self.projet.scenes[i].narration, self.reglages) for i in avec_texte}
         if tout:
-            deja = [i for i in avec_texte if self.projet.scenes[i].audio]
-            if deja:
-                rep_ = messagebox.askyesnocancel(
-                    TITRE_APP, f"{len(deja)} scène(s) ont déjà une voix off.\n\n"
-                    "Oui : les regénérer aussi\nNon : générer seulement les voix manquantes")
-                if rep_ is None:
+            def a_jour(i):
+                sc = self.projet.scenes[i]
+                return bool(sc.audio) and Path(sc.audio).exists() and sc.audio_empreinte == empreintes[i]
+            a_faire = [i for i in avec_texte if not a_jour(i)]
+            if not a_faire:
+                if not messagebox.askyesno(TITRE_APP, "Toutes les voix off sont à jour (aucune narration ni "
+                                           "réglage de voix n'a changé).\n\nLes regénérer quand même ?"):
                     return
-                if not rep_:
-                    avec_texte = [i for i in avec_texte if not self.projet.scenes[i].audio]
-                    if not avec_texte:
-                        return
+                a_faire = avec_texte
+            avec_texte = a_faire
         if self.chemin is None:
             messagebox.showinfo(TITRE_APP, "Enregistrez d'abord le projet : les voix off seront rangées "
                                 "dans un dossier à côté de lui.")
@@ -752,18 +756,21 @@ class Application(tk.Tk):
         largeur = max(2, len(str(len(self.projet.scenes))))
         phrases = [tts.Phrase(self.projet.scenes[i].narration.strip(), str(dossier / f"{i + 1:0{largeur}d}.wav"), i)
                    for i in avec_texte]
-        self._arret = threading.Event()
-        arret, reglages, total = self._arret, deepcopy(self.reglages), len(phrases)
+        arret, reglages, total = threading.Event(), deepcopy(self.reglages), len(phrases)
         self._occupe(True)
         self._arret = arret
+        self._tts_empreintes = empreintes
         self.barre.configure(value=0)
-        self.label_etat.configure(text="Démarrage de Qwen3-TTS…")
+        self.label_etat.configure(text="Qwen3-TTS : modèle déjà chargé, génération…" if tts.modele_charge()
+                                  else "Démarrage de Qwen3-TTS…")
 
         def evenement(msg):
             if msg.get("etat") == "fait":
                 self._file.put(("tts_fait", msg.get("cle"), msg.get("fichier"), msg.get("duree"), total))
             elif msg.get("etat") in ("chargement", "pret", "info"):
                 self._file.put(("tts_info", msg.get("message", "")))
+            elif msg.get("etat") == "termine":
+                self._file.put(("tts_bilan", msg.get("duree_audio", 0), msg.get("secondes", 0)))
 
         def travail():
             try:
@@ -775,6 +782,7 @@ class Application(tk.Tk):
                 self._file.put(("tts_erreur", str(e)))
 
         self._tts_faits = 0
+        self._tts_bilan = ""
         threading.Thread(target=travail, daemon=True).start()
 
     def exporter_narrations(self) -> None:
@@ -944,6 +952,7 @@ class Application(tk.Tk):
                     if i is not None and 0 <= i < len(self.projet.scenes):
                         sc = self.projet.scenes[i]
                         sc.audio, sc.caler_sur_audio = fichier, True
+                        sc.audio_empreinte = getattr(self, "_tts_empreintes", {}).get(i, "")
                         self._marquer_modifie()
                         if i == self.index:
                             self._charger_scene()
@@ -953,12 +962,17 @@ class Application(tk.Tk):
                     self.barre.configure(value=self._tts_faits / max(1, total))
                     self.label_etat.configure(text=f"Voix off {self._tts_faits}/{total} générée "
                                                    f"(scène {(i or 0) + 1}, {duree} s)")
+                elif genre == "tts_bilan":
+                    duree_audio, secondes = msg[1], msg[2]
+                    if secondes:
+                        self._tts_bilan = (f" ({duree_audio:.0f} s de voix en {secondes:.0f} s, "
+                                           f"×{duree_audio / secondes:.1f} le temps réel)")
                 elif genre == "tts_fin":
                     self._occupe(False)
                     self.barre.configure(value=1.0)
                     if self.chemin is not None:
                         self.enregistrer()
-                    self.label_etat.configure(text=f"{msg[1]} voix off générée(s) dans {msg[2]} — "
+                    self.label_etat.configure(text=f"{msg[1]} voix off générée(s){self._tts_bilan} — "
                                                    "projet enregistré.")
                 elif genre == "tts_annule":
                     self._occupe(False)
@@ -1072,6 +1086,9 @@ class AssistantIA(tk.Toplevel):
             self.app.reglages.ollama_modele = modele
             self.app.reglages.enregistrer()
         reglages = deepcopy(self.app.reglages)
+        from . import tts
+        if tts.modele_charge():  # la mémoire vidéo va au modèle de rédaction
+            tts.liberer()
         self._arret_ollama = arret = threading.Event()
         self.b_ollama.configure(state="disabled")
         self.b_stop.configure(state="normal")
@@ -1281,6 +1298,15 @@ class FenetreReglages(tk.Toplevel):
               "Modèles CustomVoice seulement (vide = premier locuteur disponible).")
         ligne(t, "Consigne de style", ttk.Entry(t, textvariable=self.v["tts_consigne"]),
               "Modèles CustomVoice : ex. « Ton posé et chaleureux, débit modéré ».")
+        cadre_vit = ttk.Frame(t)
+        ttk.Spinbox(cadre_vit, from_=1, to=16, width=4, textvariable=self.v["tts_lot"]).pack(side="left")
+        ttk.Label(cadre_vit, text=" phrases à la fois     garder le modèle chargé").pack(side="left")
+        ttk.Spinbox(cadre_vit, from_=0, to=60, width=4, textvariable=self.v["tts_garder_minutes"]).pack(side="left", padx=4)
+        ttk.Label(cadre_vit, text="min").pack(side="left")
+        ttk.Button(cadre_vit, text="Libérer maintenant", command=self._liberer_tts).pack(side="left", padx=8)
+        ligne(t, "Vitesse", cadre_vit,
+              "Plus de phrases à la fois = plus rapide, tant que la mémoire vidéo suffit (réduit tout seul sinon). "
+              "Garder le modèle chargé évite de le recharger à chaque génération.")
         cadre_essai = ttk.Frame(t)
         ttk.Button(cadre_essai, text="Essayer la voix", command=self._essai_voix).pack(side="left")
         self.lbl_tts = ttk.Label(cadre_essai, text="", foreground="#555", wraplength=360)
@@ -1349,6 +1375,11 @@ class FenetreReglages(tk.Toplevel):
         r = self._lire_valeurs()
         self.lbl_tts.configure(text="Vérification (lancement de PyTorch, quelques secondes)…")
         self._en_tache(lambda: diagnostiquer(r), "tts")
+
+    def _liberer_tts(self):
+        from . import tts
+        tts.liberer()
+        self.lbl_tts.configure(text="Qwen3-TTS arrêté : mémoire vidéo libérée.")
 
     def _essai_voix(self):
         from . import tts

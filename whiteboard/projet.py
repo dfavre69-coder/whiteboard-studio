@@ -22,6 +22,7 @@ class Scene:
     pause: float = 2.0          # secondes d'arrêt sur le dessin terminé
     audio: str = ""             # voix off de la scène (wav, mp3…), facultatif
     caler_sur_audio: bool = True  # si audio : la durée de la scène suit la voix off
+    audio_empreinte: str = ""   # voix générée par Qwen3-TTS : texte + réglages au moment de la génération
     sensibilite: int = 50       # 0-100 : quantité de détails extraits de l'image
 
 

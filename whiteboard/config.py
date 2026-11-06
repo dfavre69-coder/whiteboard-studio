@@ -47,6 +47,8 @@ class Reglages:
     tts_locuteur: str = ""                 # voix prédéfinie (modèles « CustomVoice »)
     tts_consigne: str = ""                 # consigne de style (modèles « CustomVoice »), facultative
     tts_temperature: float = 0.9
+    tts_lot: int = 4                       # phrases générées ensemble par la carte graphique
+    tts_garder_minutes: int = 5            # modèle gardé en mémoire entre deux générations (0 = non)
 
     @classmethod
     def charger(cls, chemin: Path | None = None) -> "Reglages":

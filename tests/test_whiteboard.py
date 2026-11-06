@@ -268,22 +268,39 @@ def test_ollama():
 
 
 FAUX_QWEN = '''
+import json, os
 import numpy as np
+
+def _noter(evt):
+    with open(os.environ["FAUX_JOURNAL"], "a", encoding="utf-8") as f:
+        f.write(json.dumps(evt) + "\\n")
+
 class _M: tts_model_type = "base"
 class Qwen3TTSModel:
     model = _M()
     @classmethod
-    def from_pretrained(cls, nom, **kw): return cls()
+    def from_pretrained(cls, nom, **kw):
+        _noter({"chargement": nom})
+        return cls()
     def create_voice_clone_prompt(self, **kw): return ["invite"]
     def generate_voice_clone(self, text, language=None, voice_clone_prompt=None, **kw):
-        return [np.zeros(24000 * len(text.split()) // 3, dtype=np.float32)], 24000
+        textes = text if isinstance(text, list) else [text]
+        if len(textes) > int(os.environ.get("FAUX_MAX_LOT", "99")):
+            import torch
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory (faux)")
+        _noter({"lot": len(textes)})
+        return [np.zeros(24000 * len(t.split()) // 3, dtype=np.float32) for t in textes], 24000
 '''
 FAUX_TORCH = '''
 __version__ = "faux"
 bfloat16 = float16 = float32 = "f"
 class cuda:
+    class OutOfMemoryError(RuntimeError):
+        pass
     @staticmethod
     def is_available(): return False
+    @staticmethod
+    def empty_cache(): pass
 '''
 FAUX_SF = '''
 import wave, numpy as np
@@ -294,21 +311,32 @@ def write(chemin, audio, sr):
 '''
 
 
-def test_tts_qwen(tmp_path, monkeypatch):
+def _faux_qwen(tmp_path, monkeypatch):
     for nom, code in (("qwen_tts", FAUX_QWEN), ("torch", FAUX_TORCH), ("soundfile", FAUX_SF)):
-        (tmp_path / "site" / nom).mkdir(parents=True)
+        (tmp_path / "site" / nom).mkdir(parents=True, exist_ok=True)
         (tmp_path / "site" / nom / "__init__.py").write_text(code, encoding="utf-8")
     monkeypatch.setenv("PYTHONPATH", str(tmp_path / "site"))
+    journal = tmp_path / "journal.jsonl"
+    monkeypatch.setenv("FAUX_JOURNAL", str(journal))
     ref = tmp_path / "ref.wav"
     ref.write_bytes(b"")
     r = Reglages(tts_python=sys.executable, tts_voix_reference=str(ref), tts_texte_reference="Essai.")
+    return r, journal
+
+
+def _journal(journal):
+    return [json.loads(l) for l in journal.read_text(encoding="utf-8").splitlines()] if journal.exists() else []
+
+
+def test_tts_qwen(tmp_path, monkeypatch):
+    r, journal = _faux_qwen(tmp_path, monkeypatch)
     assert "faux" in tts.diagnostiquer(r)
     p, _ = projet_depuis_ia(REPONSE_IA)
     phrases = [tts.Phrase(s.narration, str(tmp_path / "voix" / f"{i + 1:02d}.wav"), i)
                for i, s in enumerate(p.scenes) if s.narration]
     evenements = []
-    faits = tts.generer(phrases, r, evenements.append)
-    assert [f["cle"] for f in faits] == [0, 1]
+    faits = tts.generer(phrases, r, evenements.append, persistant=False)
+    assert sorted(f["cle"] for f in faits) == [0, 1]
     assert evenements[-1]["etat"] == "termine"
     assert abs(duree_audio(str(tmp_path / "voix" / "02.wav")) - 13 / 3) < 0.1  # 13 mots / 3
     r.tts_voix_reference = ""
@@ -317,6 +345,50 @@ def test_tts_qwen(tmp_path, monkeypatch):
         assert False
     except tts.ErreurTTS:
         pass
+
+
+def _phrases(tmp_path, n):
+    return [tts.Phrase(" ".join(["mot"] * (3 + i)), str(tmp_path / "v" / f"{i:02d}.wav"), i) for i in range(n)]
+
+
+def test_tts_par_lots_et_memoire(tmp_path, monkeypatch):
+    r, journal = _faux_qwen(tmp_path, monkeypatch)
+    r.tts_lot = 4
+    faits = tts.generer(_phrases(tmp_path, 6), r, persistant=False)
+    assert sorted(f["cle"] for f in faits) == list(range(6))
+    assert [e["lot"] for e in _journal(journal) if "lot" in e] == [4, 2]
+    # mémoire vidéo insuffisante : les lots se réduisent tout seuls
+    journal.unlink()
+    monkeypatch.setenv("FAUX_MAX_LOT", "2")
+    infos = []
+    faits = tts.generer(_phrases(tmp_path, 5), r, infos.append, persistant=False)
+    assert len(faits) == 5
+    assert [e["lot"] for e in _journal(journal) if "lot" in e] == [2, 2, 1]
+    assert any("réduits" in i.get("message", "") for i in infos)
+
+
+def test_tts_modele_garde_en_memoire(tmp_path, monkeypatch):
+    r, journal = _faux_qwen(tmp_path, monkeypatch)
+    r.tts_garder_minutes = 5
+    try:
+        tts.generer(_phrases(tmp_path, 2), r)
+        assert tts.modele_charge()
+        tts.generer(_phrases(tmp_path, 3), r)  # deuxième génération : pas de rechargement
+        assert len([e for e in _journal(journal) if "chargement" in e]) == 1
+    finally:
+        tts.liberer()
+    assert not tts.modele_charge()
+
+
+def test_tts_empreinte(tmp_path):
+    ref = tmp_path / "ref.wav"
+    ref.write_bytes(b"x")
+    r = Reglages(tts_voix_reference=str(ref), tts_texte_reference="Essai.")
+    e = tts.empreinte("Bonjour.", r)
+    assert e == tts.empreinte("  Bonjour. ", r)
+    assert e != tts.empreinte("Bonsoir.", r)
+    r.tts_langue = "English"
+    assert e != tts.empreinte("Bonjour.", r)
 
 
 # --- Cliparts en couleur -------------------------------------------------------------

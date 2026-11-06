@@ -13,3 +13,10 @@ dist/
 demo/
 demo-whiteboard/
 mes-projets/
+
+# Voix off et extraits de voix (à ne pas publier)
+*_voix/
+*.wav
+*.mp3
+*.m4a
+projets/

@@ -79,7 +79,14 @@ Whiteboard Studio pilote [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS) instal
 2. Choisissez le modèle. Avec un modèle **Base** (clonage), donnez un extrait de 10 à 20 secondes de la voix à cloner et, idéalement, sa transcription exacte. Avec un modèle **CustomVoice**, choisissez un locuteur prédéfini.
 3. **Essayer la voix**, puis dans la fenêtre principale **Générer les voix off (Qwen3-TTS)** pour tout le projet, ou **Générer** pour la scène sélectionnée (▶ pour écouter).
 
-Les fichiers sont rangés dans `nom-du-projet_voix/01.wav`, `02.wav`… et rattachés aux scènes ; la durée du dessin suit alors la voix. Le modèle est chargé une seule fois pour toutes les scènes, dans un processus séparé qui libère la mémoire vidéo à la fin. Avec l'option **Libérer la mémoire vidéo** (Ollama), le modèle de rédaction est déchargé dès sa réponse reçue, pour laisser la carte graphique à la synthèse vocale.
+Les fichiers sont rangés dans `nom-du-projet_voix/01.wav`, `02.wav`… et rattachés aux scènes ; la durée du dessin suit alors la voix.
+
+Pour aller vite :
+- **plusieurs phrases à la fois** : la carte graphique génère les narrations par lots (4 par défaut, réglable), en regroupant les phrases de longueur voisine ; si la mémoire vidéo manque, les lots se réduisent tout seuls ;
+- **modèle gardé chargé** : Qwen3-TTS reste ouvert entre deux générations (5 minutes par défaut, réglable ; **Libérer maintenant** le ferme), donc regénérer une scène est quasi immédiat ;
+- **seules les voix à refaire** : chaque voix garde une empreinte de sa narration et des réglages de voix ; **Générer les voix off** ne traite que les scènes nouvelles ou modifiées. Le bouton **Générer** d'une scène la refait toujours ;
+- la barre d'état indique la vitesse obtenue (« ×12 le temps réel ») ;
+- le modèle 0.6B est environ deux fois plus rapide que le 1.7B, pour une voix un peu moins naturelle. Avec l'option **Libérer la mémoire vidéo** (Ollama), le modèle de rédaction est déchargé dès sa réponse reçue, pour laisser la carte graphique à la synthèse vocale.
 
 #### Ollama
 
@@ -200,7 +207,8 @@ Utile pour automatiser la production :
 
 # Ollama et Qwen3-TTS (réglages de l'interface)
 .venv\Scripts\python -m whiteboard ollama article.txt --duree 3 -o mon-projet.json
-.venv\Scripts\python -m whiteboard tts mon-projet.json
+.venv\Scripts\python -m whiteboard tts mon-projet.json            # seulement les voix nouvelles ou modifiées
+.venv\Scripts\python -m whiteboard tts mon-projet.json --toutes   # toutes
 
 # Créer le projet de démonstration
 .venv\Scripts\python -m whiteboard demo dossier-demo
