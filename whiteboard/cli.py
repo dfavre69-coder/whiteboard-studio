@@ -10,6 +10,8 @@
     python -m whiteboard voix projet.json dossier         → rattache 01.wav, 02.wav… aux scènes
     python -m whiteboard ollama texte.txt      → texte → projet, rédigé par le modèle local Ollama
     python -m whiteboard tts projet.json       → génère les voix off avec Qwen3-TTS
+    python -m whiteboard illustrations projet.json   → prompts d'images pour ChatGPT (lots de 10)
+    python -m whiteboard images projet.json lot1.zip lot2.zip  → rattache les images aux scènes
 (Ollama et Qwen3-TTS utilisent les réglages enregistrés depuis l'interface.)
 """
 from __future__ import annotations
@@ -77,6 +79,15 @@ def main(argv: list[str] | None = None) -> int:
     tt = sous.add_parser("tts", help="générer les voix off des narrations avec Qwen3-TTS")
     tt.add_argument("projet")
     tt.add_argument("--toutes", action="store_true", help="regénérer aussi les voix à jour")
+
+    il = sous.add_parser("illustrations", help="préparer les prompts d'images (lots de 10) pour ChatGPT")
+    il.add_argument("projet")
+    il.add_argument("-o", "--sortie", help="fichier texte des prompts (sinon : affichés)")
+    il.add_argument("--scenes", help="numéros des scènes (défaut : scènes « image et texte » et titres)")
+
+    im = sous.add_parser("images", help="rattacher aux scènes les images d'un ou plusieurs zip")
+    im.add_argument("projet")
+    im.add_argument("fichiers", nargs="+", help="zip ou images")
 
     args = ap.parse_args(argv)
 
@@ -184,6 +195,38 @@ def main(argv: list[str] | None = None) -> int:
             sc.audio, sc.caler_sur_audio, sc.audio_empreinte = f["fichier"], True, empreintes[f["cle"]]
         p.enregistrer(chemin)
         print(f"{len(phrases)} voix off générée(s) dans {dossier} ; projet enregistré.")
+        return 0
+
+    if args.commande in ("illustrations", "images"):
+        from . import illustrations as I
+        chemin = Path(args.projet)
+        p = Projet.charger(chemin)
+        if args.commande == "illustrations":
+            if args.scenes:
+                indices = [int(x) - 1 for x in args.scenes.split(",") if x.strip()]
+            else:
+                indices = [i for i, s in enumerate(p.scenes) if I.illustrable(s) and I.coche_par_defaut(s)]
+            if not indices:
+                print("Aucune scène à illustrer : utilisez --scenes 2,4,…")
+                return 1
+            textes = I.prompts(p, I.preparer(p, indices))
+            p.enregistrer(chemin)
+            sortie = "\n\n" + "=" * 60 + "\n\n"
+            contenu = sortie.join(f"LOT {k + 1}\n\n{t}" for k, t in enumerate(textes))
+            if args.sortie:
+                Path(args.sortie).write_text(contenu, encoding="utf-8")
+                print(f"{len(indices)} image(s), {len(textes)} lot(s) → {args.sortie}")
+            else:
+                sys.stdout.reconfigure(encoding="utf-8")
+                print(contenu)
+            return 0
+        res = I.charger(p, args.fichiers, chemin.parent / f"{chemin.stem}_illustrations")
+        p.enregistrer(chemin)
+        for i, f in sorted(res.associees):
+            print(f"  scène {i + 1} ← {Path(f).name}")
+        for r in res.remarques:
+            print("  •", r)
+        print(f"{len(res.associees)} illustration(s) rattachée(s) ; projet enregistré.")
         return 0
 
     from .rendu import exporter

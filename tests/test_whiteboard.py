@@ -485,3 +485,70 @@ def test_references_non_fichiers_conservees(tmp_path):
     p.enregistrer(tmp_path / "p.json")
     q = Projet.charger(tmp_path / "p.json")
     assert [s.image for s in q.scenes] == ["personne:femme,pensive", "clipart:maison+ok", "icone:bulb+question"]
+
+
+# --- Illustrations générées par une IA d'images ---------------------------------------------
+import io  # noqa: E402
+import zipfile  # noqa: E402
+
+from whiteboard import illustrations as I  # noqa: E402
+
+
+def _png(couleur="orange"):
+    img = Image.new("RGB", (200, 200), "white")
+    ImageDraw.Draw(img).ellipse((40, 40, 160, 160), fill=couleur, outline="black", width=8)
+    b = io.BytesIO()
+    img.save(b, "PNG")
+    return b.getvalue()
+
+
+def test_illustrations_prompts_et_zip(tmp_path):
+    scenes = [Scene(modele="libre", titre=f"S{k}", image="clipart:abeille", illustration=f"Image {k}")
+              for k in range(12)]
+    scenes.insert(3, Scene(modele="etapes", titre="E"))
+    p = Projet(scenes=scenes)
+    indices = [i for i, s in enumerate(p.scenes) if I.illustrable(s)]
+    assert 3 not in indices
+    demandes = I.preparer(p, indices, {0: "Une ruche dans un pré"})
+    textes = I.prompts(p, demandes, sujet="Les abeilles")
+    assert len(textes) == 2 and "illus_01.png" in textes[0] and "illus_12.png" in textes[1]
+    assert "aucun texte" in textes[0].lower() and "zip" in textes[0] and "Les abeilles" in textes[0]
+    assert "Idée imposée : Une ruche dans un pré" in textes[0]
+    assert "choisis toi-même" in textes[0]           # scènes sans idée imposée
+    assert "{" not in textes[0]                       # aucun champ oublié
+    # les clés survivent à l'enregistrement et à un déplacement de scène
+    p.scenes.insert(0, p.scenes.pop(5))
+    p.enregistrer(tmp_path / "p.json")
+    p = Projet.charger(tmp_path / "p.json")
+    zip_ = tmp_path / "lot.zip"
+    with zipfile.ZipFile(zip_, "w") as z:
+        z.writestr("dossier/illus_01.png", _png())
+        z.writestr("Illus-2.png", _png())                 # nom approché
+        z.writestr("../../hors.png", _png())              # tentative de sortie du dossier
+        z.writestr("abime.png", b"pas une image")
+    res = I.charger(p, [zip_], tmp_path / "illus")
+    cle_vers_scene = {s.illustration_cle: i for i, s in enumerate(p.scenes) if s.illustration_cle}
+    rattachees = dict(res.associees)
+    assert rattachees[cle_vers_scene["illus_01"]].endswith("illus_01.png")
+    assert rattachees[cle_vers_scene["illus_02"]].endswith("illus_02.png")
+    assert len(res.associees) == 3                        # « hors.png » rattachée par ordre, signalée
+    assert not (tmp_path.parent / "hors.png").exists()
+    assert any("abime.png" in r for r in res.remarques)
+    assert all(Path(f).parent == tmp_path / "illus" for f in rattachees.values())
+    # retour aux visuels d'origine
+    i0 = cle_vers_scene["illus_01"]
+    assert p.scenes[i0].image_secours == "clipart:abeille"
+    assert I.revenir(p) == 3 and p.scenes[i0].image == "clipart:abeille"
+
+
+def test_prompts_distincts():
+    assert "## Illustrations sur mesure" not in construire_prompt("x") and "illus_" not in construire_prompt("x")
+    p = Projet(scenes=[Scene(modele="titre", titre="Lascaux", narration="Une grotte."),
+                       Scene(modele="libre", titre="Les peintures", texte="[clipart:cheval] Chevaux",
+                             narration="Des chevaux sur la paroi.")])
+    texte = I.prompts(p, I.preparer(p, [0, 1]))[0]
+    assert "Sujet de la vidéo : Lascaux" in texte and "Voix off : Des chevaux sur la paroi." in texte
+    assert "Texte écrit à l'écran : Chevaux" in texte and "[clipart" not in texte
+    p, _ = projet_depuis_ia('{"scenes": [{"modele": "libre", "titre": "R", "image": "clipart:abeille",'
+                            ' "illustration": "Une ruche dans un pré"}]}')
+    assert p.scenes[0].illustration == "Une ruche dans un pré" and p.scenes[0].image == "clipart:abeille"

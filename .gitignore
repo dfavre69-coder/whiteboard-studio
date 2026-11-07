@@ -16,6 +16,7 @@ mes-projets/
 
 # Voix off et extraits de voix (à ne pas publier)
 *_voix/
+*_illustrations/
 *.wav
 *.mp3
 *.m4a

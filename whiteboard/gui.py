@@ -145,6 +145,8 @@ class Application(tk.Tk):
         self.bouton_tts.pack(fill="x", pady=1)
         ttk.Button(gauche, text="Exporter les narrations (01.txt…)", command=self.exporter_narrations).pack(fill="x", pady=1)
         ttk.Button(gauche, text="Associer un dossier de voix off…", command=self.associer_voix).pack(fill="x", pady=1)
+        ttk.Label(gauche, text="Illustrations", style="Titre.TLabel").pack(anchor="w", pady=(6, 0))
+        ttk.Button(gauche, text="Prompt des illustrations (ChatGPT)…", command=self.illustrations_ia).pack(fill="x", pady=1)
         self.label_duree = ttk.Label(gauche, text="", foreground="#555")
         self.label_duree.pack(anchor="w", pady=(6, 0))
 
@@ -693,8 +695,70 @@ class Application(tk.Tk):
                 msg += f"\n… et {len(remarques) - 15} autre(s)."
         msg += ("\n\nÉtape suivante : « Générer les voix off (Qwen3-TTS) », ou « Exporter les "
                 "narrations » pour un autre outil de synthèse vocale.")
+        msg += ("\n\nFacultatif : « Prompt des illustrations » prépare un second prompt, pour faire dessiner "
+                "par ChatGPT des images sur mesure.")
         messagebox.showinfo(TITRE_APP, msg)
         return True
+
+    def illustrations_ia(self) -> None:
+        from .illustrations import illustrable
+        if not any(illustrable(s) for s in self.projet.scenes):
+            messagebox.showinfo(TITRE_APP, "Aucune scène ne peut recevoir d'illustration : il faut des scènes "
+                                "de modèle « Image et texte », « Titre de chapitre », « Liste » ou « Chiffre clé ».")
+            return
+        FenetreIllustrations(self)
+
+    def preparer_illustrations(self, indices: list[int] | None = None, descriptions: dict | None = None,
+                               style: str | None = None, sujet: str = "") -> list[str]:
+        """Prompt des illustrations (par lots). Sans `indices` : scènes proposées par défaut."""
+        from . import illustrations as I
+        if indices is None:
+            indices = [i for i, s in enumerate(self.projet.scenes) if I.illustrable(s) and I.coche_par_defaut(s)]
+        if not indices:
+            return []
+        if style is not None:
+            style = style.strip()
+            if style != (self.reglages.style_illustrations or I.STYLE_PAR_DEFAUT):
+                self.reglages.style_illustrations = "" if style == I.STYLE_PAR_DEFAUT else style
+                self.reglages.enregistrer()
+        demandes = I.preparer(self.projet, indices, descriptions or {})
+        self._marquer_modifie()
+        if self.chemin is not None:
+            self.enregistrer()  # les noms de fichiers attendus doivent être conservés
+        return I.prompts(self.projet, demandes, style or self.reglages.style_illustrations, sujet)
+
+    def charger_illustrations(self, parent) -> str | None:
+        """Demande les zip (ou images) et les rattache aux scènes ; renvoie le compte rendu."""
+        from . import illustrations as I
+        if self.chemin is None:
+            messagebox.showinfo(TITRE_APP, "Enregistrez d'abord le projet : les images seront rangées à côté.",
+                                parent=parent)
+            if not self.enregistrer_sous():
+                return None
+        if not any(s.illustration_cle for s in self.projet.scenes):
+            messagebox.showinfo(TITRE_APP, "Préparez d'abord le prompt des illustrations : il indique à l'IA "
+                                "le nom de chaque image.", parent=parent)
+            return None
+        fichiers = filedialog.askopenfilenames(parent=parent, title="Zip ou images renvoyés par l'IA",
+                                               filetypes=[("Zip ou images", "*.zip *.png *.jpg *.jpeg *.webp")])
+        if not fichiers:
+            return None
+        dossier = self.chemin.parent / f"{self.chemin.stem}_illustrations"
+        try:
+            res = I.charger(self.projet, list(fichiers), dossier)
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror(TITRE_APP, f"Impossible de lire ces fichiers :\n\n{e}", parent=parent)
+            return None
+        if res.associees:
+            self._marquer_modifie()
+            self.enregistrer()
+            self._rafraichir_tout()
+        texte = (f"{len(res.associees)} illustration(s) rattachée(s) : scène(s) "
+                 + ", ".join(str(i + 1) for i, _ in sorted(res.associees))) if res.associees else \
+            "Aucune image rattachée."
+        if res.remarques:
+            texte += "\n• " + "\n• ".join(res.remarques)
+        return texte
 
     def ouvrir_reglages(self, onglet: int = 0) -> None:
         FenetreReglages(self, onglet)
@@ -998,7 +1062,7 @@ class AssistantIA(tk.Toplevel):
         self.app = app
         self.title("Assistant IA : du texte à la vidéo")
         self.transient(app)
-        self.geometry("860x760")
+        self.geometry("880x900")
         self.minsize(700, 600)
         cadre = ttk.Frame(self, padding=12)
         cadre.pack(fill="both", expand=True)
@@ -1059,8 +1123,33 @@ class AssistantIA(tk.Toplevel):
         self.v_remplacer = tk.BooleanVar(value=True)
         ttk.Radiobutton(bas, text="Remplacer les scènes actuelles", variable=self.v_remplacer, value=True).pack(side="left")
         ttk.Radiobutton(bas, text="Ajouter à la suite", variable=self.v_remplacer, value=False).pack(side="left", padx=10)
-        ttk.Button(bas, text="Fermer", command=self._fermer).pack(side="right")
         ttk.Button(bas, text="Créer les scènes", style="Grand.TButton", command=self._creer).pack(side="right", padx=6)
+
+        # --- 4. Illustrations sur mesure (facultatif) ---------------------------
+        ttk.Label(cadre, text="4. Illustrations sur mesure (facultatif) : second prompt, pour une IA d'images",
+                  style="Titre.TLabel").grid(row=10, column=0, columnspan=2, sticky="w", pady=(14, 0))
+        illus = ttk.Frame(cadre)
+        illus.grid(row=11, column=0, columnspan=2, sticky="ew", pady=4)
+        self.b_illus = ttk.Button(illus, text="Copier le prompt des illustrations", command=self._copier_illus,
+                                  state="disabled")
+        self.b_illus.pack(side="left")
+        self.v_lot_illus = tk.StringVar()
+        self.combo_illus = ttk.Combobox(illus, textvariable=self.v_lot_illus, state="disabled", width=22)
+        self.combo_illus.pack(side="left", padx=6)
+        self.combo_illus.bind("<<ComboboxSelected>>", lambda e: self._copier_illus(nouveau=False))
+        self.b_zip = ttk.Button(illus, text="Charger les zip…", command=self._charger_illus, state="disabled")
+        self.b_zip.pack(side="left")
+        self.b_choisir = ttk.Button(illus, text="Choisir les scènes…", command=self.app.illustrations_ia,
+                                    state="disabled")
+        self.b_choisir.pack(side="left", padx=6)
+        ttk.Button(illus, text="Fermer", command=self._fermer).pack(side="right")
+        self.lbl_illus = ttk.Label(cadre, foreground="#555", wraplength=820, justify="left",
+                                   text="Disponible une fois les scènes créées. Le prompt est copié lot par lot "
+                                        "(10 images au plus) ; collez-le dans ChatGPT, puis chargez le zip renvoyé.")
+        self.lbl_illus.grid(row=12, column=0, columnspan=2, sticky="w")
+        self._prompts_illus: list[str] = []
+        if any(s.titre or s.texte or s.image for s in app.projet.scenes):
+            self._activer_illus()
         self.bind("<Escape>", lambda e: self._fermer())
         self.protocol("WM_DELETE_WINDOW", self._fermer)
         self.t_source.focus_set()
@@ -1213,7 +1302,211 @@ class AssistantIA(tk.Toplevel):
             messagebox.showinfo(TITRE_APP, "Collez la réponse de l'IA dans la zone 3.", parent=self)
             return
         if self.app.appliquer_ia(reponse, bool(self.v_remplacer.get())):
-            self.destroy()
+            self._prompts_illus = []
+            self._activer_illus()
+            self.lbl_illus.configure(text="Scènes créées. Pour des images sur mesure : « Copier le prompt des "
+                                          "illustrations », collez-le dans ChatGPT, puis « Charger les zip ». "
+                                          "Sinon, fermez simplement cette fenêtre.")
+            self.lift()
+
+    # --- illustrations ------------------------------------------------------
+    def _activer_illus(self):
+        for b in (self.b_illus, self.b_zip, self.b_choisir):
+            b.configure(state="normal")
+
+    def _copier_illus(self, nouveau: bool = True):
+        from .illustrations import illustrable
+        if nouveau or not self._prompts_illus:
+            if not any(illustrable(s) for s in self.app.projet.scenes):
+                messagebox.showinfo(TITRE_APP, "Aucune scène ne peut recevoir d'illustration (il faut des scènes "
+                                    "« Image et texte », « Titre », « Liste » ou « Chiffre clé »).", parent=self)
+                return
+            self._prompts_illus = self.app.preparer_illustrations()
+            if not self._prompts_illus:
+                self.lbl_illus.configure(text="Aucune scène proposée d'office : utilisez « Choisir les scènes… ».")
+                return
+            n = len(self._prompts_illus)
+            self.combo_illus.configure(values=[f"Lot {k + 1} sur {n}" for k in range(n)], state="readonly")
+            self.combo_illus.current(0)
+        k = max(0, self.combo_illus.current())
+        self.clipboard_clear()
+        self.clipboard_append(self._prompts_illus[k])
+        nb = sum(1 for s in self.app.projet.scenes if s.illustration_cle)
+        suite = f" Choisissez ensuite le lot suivant dans la liste." if len(self._prompts_illus) > 1 else ""
+        self.lbl_illus.configure(text=f"Prompt des illustrations copié (lot {k + 1} sur {len(self._prompts_illus)}, "
+                                      f"{nb} image(s) au total) : collez-le dans ChatGPT.{suite} "
+                                      "« Choisir les scènes… » permet d'en ajouter ou d'en retirer.")
+
+    def _charger_illus(self):
+        texte = self.app.charger_illustrations(self)
+        if texte is not None:
+            self.lbl_illus.configure(text=texte)
+
+
+class FenetreIllustrations(tk.Toplevel):
+    """Prompt des illustrations (distinct du prompt de scénario) puis chargement des zip obtenus."""
+
+    def __init__(self, app: Application):
+        from . import illustrations as I
+        super().__init__(app)
+        self.app, self.I = app, I
+        self.title("Prompt des illustrations (ChatGPT…)")
+        self.transient(app)
+        self.geometry("940x860")
+        self.minsize(780, 680)
+        cadre = ttk.Frame(self, padding=12)
+        cadre.pack(fill="both", expand=True)
+        cadre.columnconfigure(0, weight=1)
+
+        ttk.Label(cadre, text="1. Scènes à illustrer", style="Titre.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(cadre, foreground="#555", wraplength=900, justify="left",
+                  text="Cochez les scènes qui méritent une image sur mesure. L'idée est facultative : vide, "
+                       "l'IA d'images imagine elle-même l'illustration à partir du texte et de la voix off "
+                       "de la scène, qui figurent dans le prompt.").grid(row=1, column=0, sticky="w")
+        zone = ttk.Frame(cadre)
+        zone.grid(row=2, column=0, sticky="nsew", pady=4)
+        cadre.rowconfigure(2, weight=1)
+        canvas = tk.Canvas(zone, highlightthickness=0, height=200)
+        defil = ttk.Scrollbar(zone, orient="vertical", command=canvas.yview)
+        self.liste = ttk.Frame(canvas)
+        self.liste.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        fen = canvas.create_window((0, 0), window=self.liste, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(fen, width=e.width))
+        canvas.configure(yscrollcommand=defil.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        defil.pack(side="right", fill="y")
+        self.liste.columnconfigure(3, weight=1)
+        ttk.Label(self.liste, text="Scène", foreground="#555").grid(row=0, column=1, sticky="w")
+        ttk.Label(self.liste, text="Idée imposée (facultatif)", foreground="#555").grid(row=0, column=3, sticky="w",
+                                                                                         padx=4)
+        self.lignes: dict[int, tuple[tk.BooleanVar, tk.StringVar]] = {}
+        r = 1
+        for i, sc in enumerate(app.projet.scenes):
+            if not I.illustrable(sc):
+                continue
+            v_coche = tk.BooleanVar(value=I.coche_par_defaut(sc))
+            v_desc = tk.StringVar(value=sc.illustration)
+            nom = sc.titre or sc.texte.split("\n")[0] or "(sans titre)"
+            ttk.Checkbutton(self.liste, variable=v_coche).grid(row=r, column=0, sticky="nw", pady=2)
+            ttk.Label(self.liste, text=f"{i + 1}. {nom[:26]}").grid(row=r, column=1, sticky="nw", pady=2)
+            ttk.Label(self.liste, text=I.LIBELLES_MODELES.get(sc.modele, ""), foreground="#888").grid(
+                row=r, column=2, sticky="nw", padx=6, pady=2)
+            ttk.Entry(self.liste, textvariable=v_desc).grid(row=r, column=3, sticky="ew", pady=2, padx=(4, 6))
+            charge = sc.illustration_cle and Path(sc.image).stem == sc.illustration_cle
+            ttk.Label(self.liste, text="✓ image chargée" if charge else "", foreground="#2e7d32").grid(
+                row=r, column=4, sticky="nw")
+            self.lignes[i] = (v_coche, v_desc)
+            r += 1
+        boutons = ttk.Frame(cadre)
+        boutons.grid(row=3, column=0, sticky="w")
+        ttk.Button(boutons, text="Tout cocher", command=lambda: self._cocher(True)).pack(side="left")
+        ttk.Button(boutons, text="Tout décocher", command=lambda: self._cocher(False)).pack(side="left", padx=4)
+
+        reglages = ttk.Frame(cadre)
+        reglages.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+        reglages.columnconfigure(1, weight=1)
+        ttk.Label(reglages, text="Sujet de la vidéo").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        self.v_sujet = tk.StringVar(value=I.sujet_par_defaut(app.projet))
+        ttk.Entry(reglages, textvariable=self.v_sujet).grid(row=0, column=1, sticky="ew")
+        ttk.Label(reglages, text="Style commun").grid(row=1, column=0, sticky="nw", padx=(0, 8), pady=(6, 0))
+        self.t_style = tk.Text(reglages, height=3, wrap="word", font=("Segoe UI", 9))
+        self.t_style.insert("1.0", app.reglages.style_illustrations or I.STYLE_PAR_DEFAUT)
+        self.t_style.grid(row=1, column=1, sticky="ew", pady=(6, 0))
+
+        ttk.Label(cadre, text="2. Le prompt des illustrations (un lot de 10 images au plus)",
+                  style="Titre.TLabel").grid(row=5, column=0, sticky="w", pady=(10, 0))
+        etape2 = ttk.Frame(cadre)
+        etape2.grid(row=6, column=0, sticky="ew", pady=4)
+        ttk.Button(etape2, text="Préparer le prompt", command=self._preparer).pack(side="left")
+        self.v_lot = tk.StringVar()
+        self.combo_lot = ttk.Combobox(etape2, textvariable=self.v_lot, state="readonly", width=24)
+        self.combo_lot.pack(side="left", padx=6)
+        self.combo_lot.bind("<<ComboboxSelected>>", lambda e: self._afficher_lot())
+        self.b_copier = ttk.Button(etape2, text="Copier ce lot", command=self._copier, state="disabled")
+        self.b_copier.pack(side="left")
+        self.b_enreg = ttk.Button(etape2, text="Enregistrer…", command=self._enregistrer, state="disabled")
+        self.b_enreg.pack(side="left", padx=6)
+        self.t_apercu = tk.Text(cadre, height=9, wrap="word", font=("Consolas", 9), state="disabled",
+                                background="#f7f7f7")
+        self.t_apercu.grid(row=7, column=0, sticky="nsew", pady=4)
+        cadre.rowconfigure(7, weight=1)
+        self.lbl2 = ttk.Label(cadre, text="Collez chaque lot dans une conversation ChatGPT qui génère des images, "
+                                          "puis téléchargez le zip qu'il propose.", foreground="#555")
+        self.lbl2.grid(row=8, column=0, sticky="w")
+
+        ttk.Label(cadre, text="3. Chargez le ou les zip renvoyés", style="Titre.TLabel").grid(
+            row=9, column=0, sticky="w", pady=(10, 0))
+        etape3 = ttk.Frame(cadre)
+        etape3.grid(row=10, column=0, sticky="ew", pady=4)
+        ttk.Button(etape3, text="Charger les zip (ou des images)…", style="Grand.TButton",
+                   command=self._charger).pack(side="left")
+        ttk.Button(etape3, text="Revenir aux visuels d'origine", command=self._revenir).pack(side="left", padx=8)
+        ttk.Button(etape3, text="Fermer", command=self.destroy).pack(side="right")
+        self.lbl3 = ttk.Label(cadre, text="", foreground="#555", wraplength=900, justify="left")
+        self.lbl3.grid(row=11, column=0, sticky="w")
+        self._prompts: list[str] = []
+        self.bind("<Escape>", lambda e: self.destroy())
+
+    def _cocher(self, oui: bool):
+        for v_coche, _ in self.lignes.values():
+            v_coche.set(oui)
+
+    def _style(self) -> str:
+        return self.t_style.get("1.0", "end").strip()
+
+    def _preparer(self):
+        choisies = [i for i, (c, _) in self.lignes.items() if c.get()]
+        if not choisies:
+            messagebox.showinfo(TITRE_APP, "Cochez au moins une scène.", parent=self)
+            return
+        self._prompts = self.app.preparer_illustrations(choisies, {i: self.lignes[i][1].get() for i in choisies},
+                                                        self._style(), self.v_sujet.get())
+        n = len(self._prompts)
+        self.combo_lot.configure(values=[
+            f"Lot {k + 1} : images {k * 10 + 1} à {min((k + 1) * 10, len(choisies))}" for k in range(n)])
+        self.combo_lot.current(0)
+        self.b_copier.configure(state="normal")
+        self.b_enreg.configure(state="normal")
+        self._afficher_lot()
+        self.lbl2.configure(text=f"{len(choisies)} image(s) en {n} lot(s). Collez chaque lot dans une conversation "
+                                 "ChatGPT qui génère des images, puis téléchargez le zip qu'il propose.")
+
+    def _afficher_lot(self):
+        k = max(0, self.combo_lot.current())
+        self.t_apercu.configure(state="normal")
+        self.t_apercu.delete("1.0", "end")
+        self.t_apercu.insert("1.0", self._prompts[k] if self._prompts else "")
+        self.t_apercu.configure(state="disabled")
+
+    def _copier(self):
+        if not self._prompts:
+            return
+        k = max(0, self.combo_lot.current())
+        self.clipboard_clear()
+        self.clipboard_append(self._prompts[k])
+        self.lbl2.configure(text=f"Lot {k + 1} copié : collez-le dans ChatGPT.")
+
+    def _enregistrer(self):
+        f = filedialog.asksaveasfilename(parent=self, title="Enregistrer le prompt des illustrations",
+                                         defaultextension=".txt", initialfile="prompt_illustrations.txt",
+                                         filetypes=[("Texte", "*.txt")])
+        if f:
+            separateur = "\n\n" + "=" * 60 + "\n\n"
+            Path(f).write_text(separateur.join(f"LOT {k + 1}\n\n{p}" for k, p in enumerate(self._prompts)),
+                               encoding="utf-8")
+            self.lbl2.configure(text=f"Prompt enregistré : {Path(f).name}")
+
+    def _charger(self):
+        texte = self.app.charger_illustrations(self)
+        if texte is not None:
+            self.lbl3.configure(text=texte)
+
+    def _revenir(self):
+        n = self.I.revenir(self.app.projet)
+        if n:
+            self.app._marquer_modifie()
+            self.app._rafraichir_tout()
+        self.lbl3.configure(text=f"{n} scène(s) revenue(s) à leur visuel d'origine.")
 
 
 class FenetreReglages(tk.Toplevel):

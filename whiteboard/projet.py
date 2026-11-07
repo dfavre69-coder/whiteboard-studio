@@ -24,6 +24,9 @@ class Scene:
     caler_sur_audio: bool = True  # si audio : la durée de la scène suit la voix off
     audio_empreinte: str = ""   # voix générée par Qwen3-TTS : texte + réglages au moment de la génération
     sensibilite: int = 50       # 0-100 : quantité de détails extraits de l'image
+    illustration: str = ""      # description d'une illustration sur mesure à faire générer (ChatGPT…)
+    illustration_cle: str = ""  # nom du fichier attendu pour cette illustration (illus_03)
+    image_secours: str = ""     # visuel d'origine, remplacé par l'illustration générée
 
 
 @dataclass
@@ -51,6 +54,7 @@ class Projet:
             d["police"] = _relatif(d["police"], dossier)
             for s in d["scenes"]:
                 s["image"] = _relatif(s["image"], dossier)
+                s["image_secours"] = _relatif(s["image_secours"], dossier)
                 s["audio"] = _relatif(s["audio"], dossier)
         return d
 
@@ -75,6 +79,7 @@ class Projet:
                 p.main = _absolu(p.main, dossier)
             for s in p.scenes:
                 s.image = _absolu(s.image, dossier)
+                s.image_secours = _absolu(s.image_secours, dossier)
                 s.audio = _absolu(s.audio, dossier)
         return p
 

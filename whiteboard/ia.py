@@ -363,6 +363,8 @@ def projet_depuis_ia(reponse: str, base: Projet | None = None) -> tuple[Projet, 
             image=_visuel(str(d.get("image") or d.get("icone") or d.get("visuel") or d.get("icon") or ""),
                           remarques, ou),
             narration=narration,
+            illustration=str(d.get("illustration") or d.get("image_ia") or d.get("prompt_image")
+                             or d.get("illustration_ia") or "").strip(),
         )
         if narration:
             scene.duree_dessin, scene.pause = duree_estimee(narration)

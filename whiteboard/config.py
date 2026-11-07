@@ -49,6 +49,8 @@ class Reglages:
     tts_temperature: float = 0.9
     tts_lot: int = 4                       # phrases générées ensemble par la carte graphique
     tts_garder_minutes: int = 5            # modèle gardé en mémoire entre deux générations (0 = non)
+    # --- Illustrations générées par une IA d'images -----------------------------
+    style_illustrations: str = ""          # vide = style par défaut (illustrations.STYLE_PAR_DEFAUT)
 
     @classmethod
     def charger(cls, chemin: Path | None = None) -> "Reglages":

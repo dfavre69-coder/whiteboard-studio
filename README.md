@@ -7,6 +7,7 @@ Créez des vidéos explicatives « main qui dessine » (*whiteboard animation*) 
 ## Fonctionnalités
 
 - **Assistant IA** : collez un texte, l'appli prépare le prompt pour Claude, ChatGPT… ou le fait rédiger directement par un modèle local **Ollama** ; la réponse devient un projet complet (scènes, icônes, narration de chaque scène).
+- **Illustrations sur mesure** (facultatif) : un second prompt, dédié aux images, fait dessiner par ChatGPT des illustrations par lots de 10 ; le zip renvoyé se charge dans l'Assistant et chaque image rejoint sa scène.
 - **Voix off Qwen3-TTS intégrée** : les narrations sont lues par votre voix clonée (ou une voix prédéfinie), puis rattachées aux scènes automatiquement.
 - **Scènes prédéfinies** : titre de chapitre, liste à puces, étapes reliées par des flèches, comparaison, chiffre clé, citation, fin de vidéo. Il suffit de remplir le texte.
 - **Images vectorielles (SVG)** : la main suit exactement chaque tracé du fichier, puis les couleurs (aplats et dégradés simplifiés) apparaissent.
@@ -70,6 +71,20 @@ Le projet s'enregistre en `.json`. Les chemins des images et sons sont stockés 
 ![Assistant IA](docs/assistant.png)
 
 L'IA découpe le texte en scènes et joue le rôle de **metteur en scène** : le prompt lui apprend à choisir le bon modèle (graphique dès qu'il y a des chiffres comparables, frise pour les dates, personnage pour poser une question ou montrer une émotion…), à composer des visuels et à garder les mêmes personnages d'une scène à l'autre. Elle écrit aussi la **narration** de chaque scène (le texte de la voix off, distinct des mots clés affichés). L'import est tolérant : bloc ```` ```json ````, virgule en trop, modèle mal orthographié ou icône inexistante sont corrigés automatiquement, et la liste des corrections s'affiche. Sans voix off, la durée de chaque scène est estimée d'après la longueur de sa narration.
+
+#### Illustrations sur mesure avec une IA d'images (facultatif)
+
+Les cliparts couvrent l'essentiel, mais une scène précise (« la salle des Taureaux de Lascaux ») gagne parfois à avoir son image. ChatGPT, par exemple, sait générer une série d'images et les rendre dans un zip. Pour cela, l'appli utilise **deux prompts distincts** : le premier écrit le scénario, le second (`whiteboard/assets/prompt_illustrations.md`, modifiable) fait de l'IA d'images l'illustratrice de la vidéo.
+
+Tout se fait depuis l'**Assistant IA**, étape 4, une fois les scènes créées :
+
+1. **Copier le prompt des illustrations** : l'appli prépare un prompt par lot de 10 images au plus, pour les scènes « Image et texte » et « Titre de chapitre ». Pour chaque image, il donne le sujet de la vidéo, le texte à l'écran et la voix off de la scène, un style commun adapté au tableau blanc (traits noirs nets, couleurs en aplats, fond blanc, sans texte) et un nom de fichier imposé (`illus_01.png`…). S'il y a plusieurs lots, choisissez le suivant dans la liste.
+2. Collez-le dans ChatGPT, qui conçoit et génère les images puis propose un zip.
+3. **Charger les zip** (plusieurs à la fois si besoin) : les images sont rangées dans `nom-du-projet_illustrations/` et rattachées à leur scène, même si vous avez réordonné les scènes entre-temps. Une image au nom imprévu est rattachée dans l'ordre et signalée ; des images isolées sont aussi acceptées.
+
+**Choisir les scènes…** (ou **Prompt des illustrations** dans la fenêtre principale) ouvre la version détaillée : cocher d'autres scènes (listes, chiffres clés), imposer une idée d'image pour une scène, modifier le sujet ou le style, voir le prompt avant de le copier, et **Revenir aux visuels d'origine**.
+
+![Illustrations](docs/illustrations.png)
 
 #### Voix off avec Qwen3-TTS
 
@@ -205,6 +220,10 @@ Utile pour automatiser la production :
 .venv\Scripts\python -m whiteboard narrations mon-projet.json voix
 .venv\Scripts\python -m whiteboard voix mon-projet.json voix
 
+# Illustrations : prompts pour ChatGPT, puis chargement des zip
+.venv\Scripts\python -m whiteboard illustrations mon-projet.json -o prompts.txt
+.venv\Scripts\python -m whiteboard images mon-projet.json illustrations_lot_1.zip illustrations_lot_2.zip
+
 # Ollama et Qwen3-TTS (réglages de l'interface)
 .venv\Scripts\python -m whiteboard ollama article.txt --duree 3 -o mon-projet.json
 .venv\Scripts\python -m whiteboard tts mon-projet.json            # seulement les voix nouvelles ou modifiées
@@ -258,6 +277,7 @@ Les vidéos (`*.mp4`) et l'environnement `.venv` sont exclus du dépôt. Les tes
 | `whiteboard/traits.py` | extraction de l'encre et ordre de tracé |
 | `whiteboard/vecteur.py` | lecture des SVG, bibliothèque d'icônes, parcours vectoriel |
 | `whiteboard/modeles.py` | scènes prédéfinies et traits à main levée |
+| `whiteboard/illustrations.py` | prompts d'images par lots, chargement des zip |
 | `whiteboard/ia.py` | prompt, import de la réponse d'IA, narrations et voix off |
 | `whiteboard/ollama.py` | client Ollama (flux continu, JSON, sans réflexion) |
 | `whiteboard/tts.py`, `tts_worker.py` | pilotage de Qwen3-TTS dans son propre environnement |
