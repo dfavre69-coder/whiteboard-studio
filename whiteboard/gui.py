@@ -671,15 +671,18 @@ class Application(tk.Tk):
     def assistant_ia(self) -> None:
         AssistantIA(self)
 
-    def appliquer_ia(self, reponse: str, remplacer: bool) -> bool:
+    def appliquer_ia(self, reponse: str, remplacer: bool, short: bool = False) -> bool:
         from .ia import ReponseIllisible, projet_depuis_ia
         try:
-            nouveau, remarques = projet_depuis_ia(reponse, self.projet)
+            nouveau, remarques = projet_depuis_ia(reponse, self.projet, short=short)
         except ReponseIllisible as e:
             messagebox.showerror(TITRE_APP, f"Impossible de lire la réponse de l'IA :\n\n{e}\n\n"
                                  "Vérifiez que vous avez copié toute la réponse (elle doit contenir le JSON).")
             return False
         vide = len(self.projet.scenes) == 1 and not (self.scene.titre or self.scene.texte or self.scene.image)
+        if short:  # format vertical pour tout le projet
+            self.projet.largeur, self.projet.hauteur = nouveau.largeur, nouveau.hauteur
+            self.projet.transition = nouveau.transition
         if remplacer or vide:
             self.projet.scenes = nouveau.scenes
             self.index = 0
@@ -688,7 +691,14 @@ class Application(tk.Tk):
             self.projet.scenes.extend(nouveau.scenes)
         self._marquer_modifie()
         self._rafraichir_tout()
-        msg = f"{len(nouveau.scenes)} scène(s) créée(s)."
+        from .ia import duree_totale
+        duree = duree_totale(self.projet)
+        msg = (f"{len(nouveau.scenes)} scène(s) créée(s){' au format Short (1080 × 1920)' if short else ''}. "
+               f"Durée estimée : {int(duree // 60)} min {int(duree % 60):02d} s.")
+        if short and duree > 60:
+            msg += ("\n\nAttention : c'est plus d'une minute. YouTube accepte les Shorts jusqu'à 3 minutes, "
+                    "mais moins d'une minute reste le plus efficace : raccourcissez quelques narrations "
+                    "ou supprimez une scène.")
         if remarques:
             msg += "\n\nCorrections automatiques :\n• " + "\n• ".join(remarques[:15])
             if len(remarques) > 15:
@@ -1077,7 +1087,14 @@ class AssistantIA(tk.Toplevel):
         opts.grid(row=2, column=0, columnspan=2, sticky="ew")
         ttk.Label(opts, text="Durée visée (min)").pack(side="left")
         self.v_duree = tk.DoubleVar(value=3)
-        ttk.Spinbox(opts, from_=0.5, to=30, increment=0.5, width=5, textvariable=self.v_duree).pack(side="left", padx=6)
+        self.spin_duree = ttk.Spinbox(opts, from_=0.25, to=30, increment=0.25, width=5, textvariable=self.v_duree)
+        self.spin_duree.pack(side="left", padx=6)
+        self.v_short = tk.BooleanVar(value=app.projet.hauteur > app.projet.largeur)
+        ttk.Checkbutton(opts, text="Short (vertical, < 1 min)", variable=self.v_short,
+                        command=self._basculer_short).pack(side="left", padx=(6, 0))
+        self._duree_normale = 3.0
+        if self.v_short.get():
+            self.v_duree.set(0.75)
         ttk.Label(opts, text="Public et ton").pack(side="left", padx=(12, 0))
         self.v_ton = tk.StringVar(value="grand public curieux, ton clair et chaleureux")
         ttk.Entry(opts, textvariable=self.v_ton).pack(side="left", fill="x", expand=True, padx=6)
@@ -1262,7 +1279,18 @@ class AssistantIA(tk.Toplevel):
             duree = float(self.v_duree.get())
         except (tk.TclError, ValueError):
             duree = 3
-        return construire_prompt(texte, duree, self.v_ton.get())
+        return construire_prompt(texte, duree, self.v_ton.get(), short=bool(self.v_short.get()))
+
+    def _basculer_short(self):
+        try:
+            duree = float(self.v_duree.get())
+        except (tk.TclError, ValueError):
+            duree = 3.0
+        if self.v_short.get():
+            self._duree_normale = duree
+            self.v_duree.set(0.75)
+        else:
+            self.v_duree.set(self._duree_normale if self._duree_normale > 1 else 3.0)
 
     def _ouvrir(self):
         f = filedialog.askopenfilename(parent=self, title="Texte source",
@@ -1301,7 +1329,7 @@ class AssistantIA(tk.Toplevel):
         if not reponse:
             messagebox.showinfo(TITRE_APP, "Collez la réponse de l'IA dans la zone 3.", parent=self)
             return
-        if self.app.appliquer_ia(reponse, bool(self.v_remplacer.get())):
+        if self.app.appliquer_ia(reponse, bool(self.v_remplacer.get()), short=bool(self.v_short.get())):
             self._prompts_illus = []
             self._activer_illus()
             self.lbl_illus.configure(text="Scènes créées. Pour des images sur mesure : « Copier le prompt des "

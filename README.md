@@ -7,6 +7,7 @@ Créez des vidéos explicatives « main qui dessine » (*whiteboard animation*) 
 ## Fonctionnalités
 
 - **Assistant IA** : collez un texte, l'appli prépare le prompt pour Claude, ChatGPT… ou le fait rédiger directement par un modèle local **Ollama** ; la réponse devient un projet complet (scènes, icônes, narration de chaque scène).
+- **Shorts YouTube** : une case dans l'Assistant IA produit une vidéo verticale de moins d'une minute, avec un scénario taillé pour ce format (accroche immédiate, rythme rapide).
 - **Illustrations sur mesure** (facultatif) : un second prompt, dédié aux images, fait dessiner par ChatGPT des illustrations par lots de 10 ; le zip renvoyé se charge dans l'Assistant et chaque image rejoint sa scène.
 - **Voix off Qwen3-TTS intégrée** : les narrations sont lues par votre voix clonée (ou une voix prédéfinie), puis rattachées aux scènes automatiquement.
 - **Scènes prédéfinies** : titre de chapitre, liste à puces, étapes reliées par des flèches, comparaison, chiffre clé, citation, fin de vidéo. Il suffit de remplir le texte.
@@ -69,6 +70,8 @@ Le projet s'enregistre en `.json`. Les chemins des images et sons sont stockés 
 3. **Créer les scènes**.
 
 ![Assistant IA](docs/assistant.png)
+
+Cochez **Short (vertical, < 1 min)** pour un Short YouTube : la durée visée passe à 45 secondes, le prompt ajoute des règles propres au format (une accroche dans les deux premières secondes, 5 à 8 scènes, narrations de 8 à 25 mots, peu d'éléments par scène pour l'écran étroit, fin éclair), les pauses sont raccourcies et le projet passe en 1080 × 1920. Après création, l'appli affiche la durée estimée et prévient si elle dépasse une minute.
 
 L'IA découpe le texte en scènes et joue le rôle de **metteur en scène** : le prompt lui apprend à choisir le bon modèle (graphique dès qu'il y a des chiffres comparables, frise pour les dates, personnage pour poser une question ou montrer une émotion…), à composer des visuels et à garder les mêmes personnages d'une scène à l'autre. Elle écrit aussi la **narration** de chaque scène (le texte de la voix off, distinct des mots clés affichés). L'import est tolérant : bloc ```` ```json ````, virgule en trop, modèle mal orthographié ou icône inexistante sont corrigés automatiquement, et la liste des corrections s'affiche. Sans voix off, la durée de chaque scène est estimée d'après la longueur de sa narration.
 
@@ -216,6 +219,7 @@ Utile pour automatiser la production :
 
 # Assistant IA en ligne de commande
 .venv\Scripts\python -m whiteboard prompt article.txt --duree 3 -o prompt.txt
+.venv\Scripts\python -m whiteboard prompt article.txt --short -o prompt_short.txt   # Short vertical
 .venv\Scripts\python -m whiteboard ia reponse_ia.txt -o mon-projet.json
 .venv\Scripts\python -m whiteboard narrations mon-projet.json voix
 .venv\Scripts\python -m whiteboard voix mon-projet.json voix

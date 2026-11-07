@@ -552,3 +552,21 @@ def test_prompts_distincts():
     p, _ = projet_depuis_ia('{"scenes": [{"modele": "libre", "titre": "R", "image": "clipart:abeille",'
                             ' "illustration": "Une ruche dans un pré"}]}')
     assert p.scenes[0].illustration == "Une ruche dans un pré" and p.scenes[0].image == "clipart:abeille"
+
+
+# --- Shorts ------------------------------------------------------------------------------
+def test_short():
+    normal = construire_prompt("x", 3)
+    short = construire_prompt("x", 0.75, short=True)
+    assert "## Format Short" not in normal and "## Format Short" in short
+    assert "45 secondes" in short and "{" not in short.split("## Texte source")[0].split("## Cliparts")[0][-2000:]
+    p, _ = projet_depuis_ia(REPONSE_IA, Projet(), short=True)
+    assert (p.largeur, p.hauteur) == (1080, 1920)
+    q, _ = projet_depuis_ia(REPONSE_IA, Projet())
+    assert p.scenes[0].pause < q.scenes[0].pause
+    assert p.scenes[0].duree_dessin + p.scenes[0].pause < q.scenes[0].duree_dessin + q.scenes[0].pause
+    # chaque scène du Short tient dans l'écran vertical
+    for s in p.scenes:
+        sp = preparer_scene(Projet(largeur=540, hauteur=960), s)
+        for el in sp.elements:
+            assert el.x >= 0 and el.y >= 0 and el.x + el.largeur <= 540 and el.y + el.hauteur <= 960

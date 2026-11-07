@@ -54,12 +54,14 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("texte", help="fichier texte source")
     pr.add_argument("--duree", type=float, default=3, help="durée visée en minutes (défaut 3)")
     pr.add_argument("--ton", default="", help="public et ton souhaités")
+    pr.add_argument("--short", action="store_true", help="Short YouTube : vertical, moins d'une minute")
     pr.add_argument("-o", "--sortie", help="fichier où écrire le prompt (sinon : affiché)")
 
     ia = sous.add_parser("ia", help="créer un projet à partir de la réponse d'une IA")
     ia.add_argument("reponse", help="fichier contenant la réponse de l'IA")
     ia.add_argument("-o", "--sortie", help="projet JSON à créer")
     ia.add_argument("--base", help="projet dont on reprend les réglages (format, main, musique…)")
+    ia.add_argument("--short", action="store_true", help="format Short (1080 × 1920, rythme rapide)")
 
     na = sous.add_parser("narrations", help="exporter les textes de voix off (01.txt, 02.txt…)")
     na.add_argument("projet")
@@ -74,6 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     ol.add_argument("-o", "--sortie", help="projet JSON à créer")
     ol.add_argument("--duree", type=float, default=3)
     ol.add_argument("--ton", default="")
+    ol.add_argument("--short", action="store_true", help="Short YouTube : vertical, moins d'une minute")
     ol.add_argument("--modele", help="modèle Ollama (sinon : celui des réglages)")
 
     tt = sous.add_parser("tts", help="générer les voix off des narrations avec Qwen3-TTS")
@@ -116,7 +119,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.commande == "prompt":
         from .ia import construire_prompt
         texte = Path(args.texte).read_text(encoding="utf-8", errors="replace")
-        prompt = construire_prompt(texte, args.duree, args.ton)
+        prompt = construire_prompt(texte, 0.75 if args.short and args.duree == 3 else args.duree, args.ton,
+                                   short=args.short)
         if args.sortie:
             Path(args.sortie).write_text(prompt, encoding="utf-8")
             print(f"Prompt écrit dans {args.sortie} ({len(prompt)} caractères).")
@@ -129,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         from .ia import projet_depuis_ia
         reponse = Path(args.reponse).read_text(encoding="utf-8", errors="replace")
         base = Projet.charger(args.base) if args.base else None
-        p, remarques = projet_depuis_ia(reponse, base)
+        p, remarques = projet_depuis_ia(reponse, base, short=args.short)
         sortie = Path(args.sortie) if args.sortie else Path(args.reponse).with_suffix(".json")
         p.enregistrer(sortie)
         for r in remarques:
@@ -159,9 +163,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.modele:
             r.ollama_modele = args.modele
         texte = Path(args.texte).read_text(encoding="utf-8", errors="replace")
-        reponse = generer(construire_prompt(texte, args.duree, args.ton), r,
+        duree = 0.75 if args.short and args.duree == 3 else args.duree
+        reponse = generer(construire_prompt(texte, duree, args.ton, short=args.short), r,
                           lambda t, st: _barre(min(0.99, len(t) / 6000), f"{st.caracteres} caractères"))
-        p, remarques = projet_depuis_ia(reponse)
+        p, remarques = projet_depuis_ia(reponse, short=args.short)
         sortie = Path(args.sortie) if args.sortie else Path(args.texte).with_suffix(".json")
         p.enregistrer(sortie)
         print()

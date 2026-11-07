@@ -23,6 +23,20 @@ from .vecteur import (PREFIXE_CLIPART, PREFIXE_ICONE, catalogue_cliparts, catalo
 FICHIER_PROMPT = Path(__file__).parent / "assets" / "prompt_video.md"
 MOTS_PAR_SECONDE = 2.6        # débit d'une voix off posée (≈ 155 mots par minute)
 SECONDES_PAR_SCENE = 9        # pour estimer le nombre de scènes
+SECONDES_PAR_SCENE_SHORT = 7  # rythme plus soutenu des Shorts
+DUREE_SHORT = 0.75            # durée visée par défaut d'un Short, en minutes (45 s)
+FORMAT_SHORT = (1080, 1920)
+
+SECTION_SHORT = """
+## Format Short (vidéo verticale, option activée)
+
+Cette vidéo est un Short YouTube : écran vertical 9:16, regardé sur téléphone, en moins d'une minute (visée : {SECONDES} secondes). Ces règles remplacent les règles contraires plus haut.
+- 5 à 8 scènes, rythme rapide. La narration de chaque scène fait 8 à 25 mots ; le total de la narration ne dépasse pas {MOTS} mots.
+- La première scène est une accroche qui retient le pouce dès les deux premières secondes : une question intrigante (modèle "personnage"), un chiffre étonnant tiré du texte (modèle "chiffre") ou un titre choc (modèle "titre"). Sa narration commence directement par l'accroche, sans « Bonjour » ni présentation.
+- L'écran est étroit : titres de 25 caractères au plus, 3 lignes au plus dans "liste" et "etapes", 2 colonnes au plus dans "comparaison", 4 barres au plus dans "graphique", 4 dates au plus dans "chronologie".
+- Une seule idée forte par scène, dite simplement ; pas de transition du type « voyons maintenant ».
+- La dernière scène reste "fin", avec une narration de 10 mots au plus qui invite à s'abonner.
+"""
 EXTENSIONS_AUDIO = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".aac", ".opus"}
 
 ICONES_PROMPT = {
@@ -117,10 +131,20 @@ def liste_cliparts_prompt() -> str:
     return "\n".join(lignes)
 
 
-def construire_prompt(texte: str, duree_minutes: float = 3, ton: str = "") -> str:
+def construire_prompt(texte: str, duree_minutes: float = 3, ton: str = "", short: bool = False) -> str:
     from . import personnages as P
     modele = FICHIER_PROMPT.read_text(encoding="utf-8")
-    nb = max(3, round(duree_minutes * 60 / SECONDES_PAR_SCENE))
+    if short:
+        duree_minutes = min(duree_minutes, 1.0)
+        secondes = int(round(duree_minutes * 60))
+        section = (SECTION_SHORT.replace("{SECONDES}", str(secondes))
+                   .replace("{MOTS}", str(int(secondes * MOTS_PAR_SECONDE * 0.85))))
+        modele = modele.replace("## Cliparts en couleur disponibles",
+                                section.strip() + "\n\n## Cliparts en couleur disponibles", 1)
+        modele = modele.replace("environ {DUREE} minute(s)", f"environ {secondes} secondes (Short vertical)")
+        nb = max(5, min(8, round(duree_minutes * 60 / SECONDES_PAR_SCENE_SHORT)))
+    else:
+        nb = max(3, round(duree_minutes * 60 / SECONDES_PAR_SCENE))
     remplacements = {
         "{DUREE}": f"{duree_minutes:g}".replace(".", ","),
         "{NB_SCENES}": str(nb),
@@ -318,15 +342,24 @@ def _texte(valeur, remarques: list[str], ou: str) -> str:
     return "\n".join(lignes).strip()
 
 
-def duree_estimee(narration: str) -> tuple[float, float]:
+def duree_estimee(narration: str, short: bool = False) -> tuple[float, float]:
     """(durée du dessin, pause) estimées d'après la longueur de la narration."""
     mots = len(narration.split())
-    total = mots / MOTS_PAR_SECONDE + 0.8
-    pause = 1.5
-    return max(2.5, round(total - pause - 0.35, 1)), pause
+    total = mots / MOTS_PAR_SECONDE + (0.5 if short else 0.8)
+    pause = 1.0 if short else 1.5
+    return max(2.0 if short else 2.5, round(total - pause - 0.35, 1)), pause
 
 
-def projet_depuis_ia(reponse: str, base: Projet | None = None) -> tuple[Projet, list[str]]:
+def duree_totale(projet: Projet) -> float:
+    """Durée approximative de la vidéo, en secondes (voix off non mesurées : estimation par la narration)."""
+    from .rendu import DUREE_ENTREE, DUREE_TRANSITION
+    total = sum(DUREE_ENTREE + s.duree_dessin + s.pause for s in projet.scenes)
+    if projet.transition != "coupe":
+        total += DUREE_TRANSITION * max(0, len(projet.scenes) - 1)
+    return total
+
+
+def projet_depuis_ia(reponse: str, base: Projet | None = None, short: bool = False) -> tuple[Projet, list[str]]:
     """Construit un projet (réglages de `base` conservés) à partir de la réponse d'une IA.
 
     Renvoie (projet, remarques sur les corrections effectuées).
@@ -367,10 +400,16 @@ def projet_depuis_ia(reponse: str, base: Projet | None = None) -> tuple[Projet, 
                              or d.get("illustration_ia") or "").strip(),
         )
         if narration:
-            scene.duree_dessin, scene.pause = duree_estimee(narration)
+            scene.duree_dessin, scene.pause = duree_estimee(narration, short)
+        elif short:
+            scene.duree_dessin, scene.pause = 3.0, 1.0
         projet.scenes.append(scene)
     if not projet.scenes:
         raise ReponseIllisible("Aucune scène exploitable dans la réponse.")
+    if short:
+        projet.largeur, projet.hauteur = FORMAT_SHORT
+        if projet.transition == "glisser":
+            projet.transition = "fondu"  # plus court à l'œil sur un écran étroit
     return projet, remarques
 
 
