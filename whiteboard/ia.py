@@ -414,6 +414,92 @@ def projet_depuis_ia(reponse: str, base: Projet | None = None, short: bool = Fal
 
 
 # ---------------------------------------------------------------------------
+# Texte défilant (sans IA)
+# ---------------------------------------------------------------------------
+MOTS_PAR_SCENE_DEFIL = 70   # ≈ 30 s de lecture : une voix off de synthèse reste fiable à cette longueur
+
+
+def _phrases(paragraphe: str) -> list[str]:
+    return [p for p in re.split(r"(?<=[.!?…])\s+", paragraphe.strip()) if p]
+
+
+def _nettoyer_markdown(texte: str) -> str:
+    """Retire la mise en forme Markdown (gras, italique, titres) qui serait affichée et lue telle quelle."""
+    lignes = []
+    for l in texte.split("\n"):
+        l = re.sub(r"^\s{0,3}#{1,6}\s+", "", l)                    # # Titre
+        l = re.sub(r"^(\s*)[-*+]\s+", r"\1• ", l)                   # - puce
+        l = re.sub(r"(\*\*|__)(.+?)\1", r"\2", l)                    # **gras**
+        l = re.sub(r"(?<![\w*])[*_](?!\s)(.+?)(?<!\s)[*_](?![\w*])", r"\1", l)  # *italique*
+        lignes.append(l)
+    return "\n".join(lignes)
+
+
+def decouper_texte_defilant(texte: str, mots_max: int = MOTS_PAR_SCENE_DEFIL) -> list[str]:
+    """Découpe un texte de n'importe quelle longueur en passages d'environ `mots_max` mots.
+
+    Les coupures tombent entre deux paragraphes, sinon entre deux phrases ; une phrase
+    n'est jamais coupée. Les paragraphes d'un même passage restent séparés par une ligne vide.
+    """
+    texte = _nettoyer_markdown(texte.replace("\r\n", "\n")).strip()
+    # Un retour à la ligne simple est une coupure de mise en page (fichier texte), sauf devant une puce.
+    paragraphes = [re.sub(r"[ \t]*\n[ \t]*(?!• |\d+[.)] )", " ", p).strip() for p in re.split(r"\n\s*\n", texte)]
+    passages: list[str] = []
+    courant: list[str] = []      # paragraphes du passage en cours
+    mots = 0
+
+    def clore():
+        nonlocal courant, mots
+        if courant:
+            passages.append("\n\n".join(courant))
+        courant, mots = [], 0
+
+    for para in (p for p in paragraphes if p):
+        n = len(para.split())
+        if mots and mots + n > mots_max:
+            clore()
+        if n <= mots_max:
+            courant.append(para)
+            mots += n
+            continue
+        # paragraphe trop long : on le coupe entre deux phrases
+        morceau: list[str] = []
+        for ph in _phrases(para):
+            k = len(ph.split())
+            if morceau and mots + k > mots_max:
+                courant.append(" ".join(morceau))
+                clore()
+                morceau = []
+            morceau.append(ph)
+            mots += k
+        if morceau:
+            courant.append(" ".join(morceau))
+    clore()
+    return passages
+
+
+def projet_texte_defilant(texte: str, base: Projet | None = None, short: bool = False,
+                          titre: str = "") -> Projet:
+    """Le texte devient une suite de scènes « texte défilant » ; chaque passage est aussi la narration."""
+    passages = decouper_texte_defilant(texte)
+    if not passages:
+        raise ReponseIllisible("Le texte est vide.")
+    projet = Projet.depuis_dict(base.vers_dict()) if base is not None else Projet()
+    projet.scenes = []
+    for i, passage in enumerate(passages):
+        scene = Scene(modele="libre", titre=titre if i == 0 else "", texte=passage, narration=passage,
+                      defilement=True)
+        mots = len(passage.split())
+        scene.pause = 1.0
+        scene.duree_dessin = max(2.0, round(mots / MOTS_PAR_SECONDE + 1.0 - scene.pause, 1))
+        projet.scenes.append(scene)
+    if short:
+        projet.largeur, projet.hauteur = FORMAT_SHORT
+    if projet.transition == "glisser":
+        projet.transition = "fondu"   # d'un passage à l'autre, un fondu reste discret
+    return projet
+
+# ---------------------------------------------------------------------------
 # Voix off
 # ---------------------------------------------------------------------------
 def exporter_narrations(projet: Projet, dossier: str | Path) -> int:

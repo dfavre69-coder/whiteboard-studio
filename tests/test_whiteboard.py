@@ -591,3 +591,18 @@ def test_texte_defilant(tmp_path):
     # le réglage est enregistré avec le projet
     p.enregistrer(tmp_path / "p.json")
     assert Projet.charger(tmp_path / "p.json").scenes[0].defilement
+
+
+def test_assistant_texte_defilant():
+    from whiteboard.ia import decouper_texte_defilant, projet_texte_defilant
+    phrase = "Chaque petit pas compte et nous rapproche du but. "
+    texte = "Titre court.\n\n" + phrase * 40 + "\n\nDernier paragraphe, bref."
+    passages = decouper_texte_defilant(texte, mots_max=70)
+    assert len(passages) > 3
+    assert all(len(p.split()) <= 70 for p in passages)
+    assert all(p.rstrip().endswith((".", "!", "?")) for p in passages)   # aucune phrase coupée
+    assert " ".join(" ".join(passages).split()) == " ".join(texte.split())  # rien de perdu
+    p = projet_texte_defilant(texte, Projet(), short=True)
+    assert (p.largeur, p.hauteur) == (1080, 1920)
+    assert all(s.defilement and s.narration == s.texte for s in p.scenes)
+    assert p.transition == "fondu"

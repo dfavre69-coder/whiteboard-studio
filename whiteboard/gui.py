@@ -228,7 +228,7 @@ class Application(tk.Tk):
         ttk.Checkbutton(milieu, text="Caler la durée de la scène sur la voix off",
                         variable=self.v_caler).grid(row=r, column=1, columnspan=3, sticky="w")
         r += 1
-        ttk.Checkbutton(milieu, text="Texte défilant : le champ Texte s'affiche en grand et défile pendant la lecture",
+        ttk.Checkbutton(milieu, text="Texte défilant (le Texte s'affiche en grand et défile pendant la lecture)",
                         variable=self.v_defil).grid(row=r, column=1, columnspan=3, sticky="w")
         r += 1
         ttk.Label(milieu, text="Détails extraits").grid(row=r, column=0, sticky="w", pady=3)
@@ -687,6 +687,24 @@ class Application(tk.Tk):
             messagebox.showerror(TITRE_APP, f"Impossible de lire la réponse de l'IA :\n\n{e}\n\n"
                                  "Vérifiez que vous avez copié toute la réponse (elle doit contenir le JSON).")
             return False
+        self._integrer(nouveau, remplacer, short)
+        self._annoncer_creation(nouveau, short, remarques)
+        return True
+
+    def appliquer_texte_defilant(self, texte: str, remplacer: bool, short: bool = False) -> bool:
+        """Sans IA : le texte devient des scènes « texte défilant » lues par la voix off."""
+        from .ia import ReponseIllisible, projet_texte_defilant
+        try:
+            nouveau = projet_texte_defilant(texte, self.projet, short=short)
+        except ReponseIllisible as e:
+            messagebox.showinfo(TITRE_APP, str(e))
+            return False
+        self.projet.transition = nouveau.transition
+        self._integrer(nouveau, remplacer, short)
+        self._annoncer_creation(nouveau, short, [], defilant=True)
+        return True
+
+    def _integrer(self, nouveau: Projet, remplacer: bool, short: bool) -> None:
         vide = len(self.projet.scenes) == 1 and not (self.scene.titre or self.scene.texte or self.scene.image)
         if short:  # format vertical pour tout le projet
             self.projet.largeur, self.projet.hauteur = nouveau.largeur, nouveau.hauteur
@@ -699,6 +717,8 @@ class Application(tk.Tk):
             self.projet.scenes.extend(nouveau.scenes)
         self._marquer_modifie()
         self._rafraichir_tout()
+
+    def _annoncer_creation(self, nouveau: Projet, short: bool, remarques: list[str], defilant: bool = False) -> None:
         from .ia import duree_totale
         duree = duree_totale(self.projet)
         msg = (f"{len(nouveau.scenes)} scène(s) créée(s){' au format Short (1080 × 1920)' if short else ''}. "
@@ -713,10 +733,13 @@ class Application(tk.Tk):
                 msg += f"\n… et {len(remarques) - 15} autre(s)."
         msg += ("\n\nÉtape suivante : « Générer les voix off (Qwen3-TTS) », ou « Exporter les "
                 "narrations » pour un autre outil de synthèse vocale.")
-        msg += ("\n\nFacultatif : « Prompt des illustrations » prépare un second prompt, pour faire dessiner "
-                "par ChatGPT des images sur mesure.")
+        if defilant:
+            msg += ("\n\nChaque scène affiche son passage du texte, qui défile pendant que la voix off le lit. "
+                    "Le texte est découpé en passages d'environ 30 secondes, sans jamais couper une phrase.")
+        else:
+            msg += ("\n\nFacultatif : « Prompt des illustrations » prépare un second prompt, pour faire "
+                    "dessiner par ChatGPT des images sur mesure.")
         messagebox.showinfo(TITRE_APP, msg)
-        return True
 
     def illustrations_ia(self) -> None:
         from .illustrations import illustrable
@@ -1091,8 +1114,10 @@ class AssistantIA(tk.Toplevel):
         ttk.Button(cadre, text="Ouvrir un fichier texte…", command=self._ouvrir).grid(row=0, column=1, sticky="e")
         self.t_source = tk.Text(cadre, height=10, wrap="word", font=("Segoe UI", 10), undo=True)
         self.t_source.grid(row=1, column=0, columnspan=2, sticky="nsew", pady=4)
-        opts = ttk.Frame(cadre)
-        opts.grid(row=2, column=0, columnspan=2, sticky="ew")
+        zone_opts = ttk.Frame(cadre)
+        zone_opts.grid(row=2, column=0, columnspan=2, sticky="ew")
+        opts = ttk.Frame(zone_opts)
+        opts.pack(fill="x")
         ttk.Label(opts, text="Durée visée (min)").pack(side="left")
         self.v_duree = tk.DoubleVar(value=3)
         self.spin_duree = ttk.Spinbox(opts, from_=0.25, to=30, increment=0.25, width=5, textvariable=self.v_duree)
@@ -1103,6 +1128,9 @@ class AssistantIA(tk.Toplevel):
         self._duree_normale = 3.0
         if self.v_short.get():
             self.v_duree.set(0.75)
+        self.v_defil = tk.BooleanVar(value=False)
+        ttk.Checkbutton(opts, text="Texte défilant (sans IA)", variable=self.v_defil,
+                        command=self._basculer_defil).pack(side="left", padx=(10, 0))
         ttk.Label(opts, text="Public et ton").pack(side="left", padx=(12, 0))
         self.v_ton = tk.StringVar(value="grand public curieux, ton clair et chaleureux")
         ttk.Entry(opts, textvariable=self.v_ton).pack(side="left", fill="x", expand=True, padx=6)
@@ -1130,6 +1158,11 @@ class AssistantIA(tk.Toplevel):
         self.lbl_ollama = ttk.Label(cadre, text="Une IA externe (Claude, ChatGPT…) donne en général un meilleur "
                                     "découpage ; Ollama évite le copier-coller.", foreground="#555")
         self.lbl_ollama.grid(row=6, column=0, columnspan=2, sticky="w")
+        self.lbl_defil = ttk.Label(zone_opts, foreground="#1a5fb4", wraplength=820, justify="left",
+                                   text="Texte défilant : pas besoin d'IA ni des étapes 2 et 3. Le texte, de "
+                                        "n'importe quelle longueur, est découpé en passages d'environ 30 secondes "
+                                        "(sans couper les phrases) ; chacun s'affiche en grand et défile pendant "
+                                        "que la voix off le lit. Cliquez directement sur « Créer les scènes ».")
         self._arret_ollama: threading.Event | None = None
         self._file_ollama: queue.Queue = queue.Queue()
         threading.Thread(target=self._charger_modeles, daemon=True).start()
@@ -1289,6 +1322,14 @@ class AssistantIA(tk.Toplevel):
             duree = 3
         return construire_prompt(texte, duree, self.v_ton.get(), short=bool(self.v_short.get()))
 
+    def _basculer_defil(self):
+        if self.v_defil.get():
+            self.lbl_defil.pack(anchor="w", pady=(4, 0))
+            self.spin_duree.configure(state="disabled")
+        else:
+            self.lbl_defil.pack_forget()
+            self.spin_duree.configure(state="normal")
+
     def _basculer_short(self):
         try:
             duree = float(self.v_duree.get())
@@ -1333,6 +1374,14 @@ class AssistantIA(tk.Toplevel):
         self.t_reponse.insert("1.0", contenu)
 
     def _creer(self):
+        if self.v_defil.get():
+            texte = self.t_source.get("1.0", "end-1c").strip()
+            if not texte:
+                messagebox.showinfo(TITRE_APP, "Collez d'abord votre texte dans la zone 1.", parent=self)
+                return
+            if self.app.appliquer_texte_defilant(texte, bool(self.v_remplacer.get()), short=bool(self.v_short.get())):
+                self._fermer()
+            return
         reponse = self.t_reponse.get("1.0", "end-1c").strip()
         if not reponse:
             messagebox.showinfo(TITRE_APP, "Collez la réponse de l'IA dans la zone 3.", parent=self)
