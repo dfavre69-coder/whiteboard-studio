@@ -18,6 +18,7 @@ Créez des vidéos explicatives « main qui dessine » (*whiteboard animation*) 
 - **Plus de 1 200 cliparts en couleur** (animaux, objets, aliments, lieux, métiers, émotions…) : la main dessine leurs contours, puis les couleurs apparaissent.
 - **4 800 icônes au trait** en complément, pour les idées abstraites. Recherche en français dans les deux bibliothèques.
 - **Images classiques** : n'importe quelle image (PNG, JPG…) est transformée en tracés, dessinés dans un ordre naturel, puis colorisée si vous le souhaitez.
+- **Texte défilant** : une case par scène affiche le champ Texte en grand et le fait défiler pendant la lecture (titre fixe en haut, fondu sur les bords), calé sur la voix off.
 - **Texte écrit à la main** : titres et légendes s'écrivent de gauche à droite avec une police manuscrite (fournie, libre de droits) ou la vôtre.
 - **Voix off par scène** : la durée du dessin se cale automatiquement sur la voix. Idéal avec des voix générées par synthèse vocale.
 - **Musique de fond** en boucle, volume réglable, avec fondu d'entrée et de sortie.

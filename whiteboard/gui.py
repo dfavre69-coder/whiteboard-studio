@@ -162,6 +162,7 @@ class Application(tk.Tk):
         self.v_pause = tk.DoubleVar()
         self.v_audio = tk.StringVar()
         self.v_caler = tk.BooleanVar()
+        self.v_defil = tk.BooleanVar()
         self.v_sensibilite = tk.IntVar()
 
         r = 1
@@ -227,6 +228,9 @@ class Application(tk.Tk):
         ttk.Checkbutton(milieu, text="Caler la durée de la scène sur la voix off",
                         variable=self.v_caler).grid(row=r, column=1, columnspan=3, sticky="w")
         r += 1
+        ttk.Checkbutton(milieu, text="Texte défilant : le champ Texte s'affiche en grand et défile pendant la lecture",
+                        variable=self.v_defil).grid(row=r, column=1, columnspan=3, sticky="w")
+        r += 1
         ttk.Label(milieu, text="Détails extraits").grid(row=r, column=0, sticky="w", pady=3)
         cadre_s = ttk.Frame(milieu)
         cadre_s.grid(row=r, column=1, columnspan=3, sticky="ew")
@@ -245,7 +249,7 @@ class Application(tk.Tk):
         milieu.rowconfigure(r, weight=1)
 
         for v in (self.v_modele, self.v_titre, self.v_image, self.v_mode, self.v_dessin, self.v_pause,
-                  self.v_audio, self.v_caler, self.v_sensibilite):
+                  self.v_audio, self.v_caler, self.v_defil, self.v_sensibilite):
             v.trace_add("write", lambda *a: self._formulaire_modifie())
 
         # --- réglages du projet ----------------------------------------
@@ -368,6 +372,8 @@ class Application(tk.Tk):
                   (Path(s.image).name if s.image else "(vide)")
             marque = " ♪" if s.audio else ""
             genre = "" if s.modele == "libre" else f"  [{MODELES.get(s.modele, MODELES['libre']).libelle}]"
+            if s.defilement:
+                genre = "  [Texte défilant]"
             self.liste.insert("end", f"{i:>2}. {nom}{marque}{genre}")
         self.index = min(self.index, len(self.projet.scenes) - 1)
         self.liste.selection_clear(0, "end")
@@ -395,6 +401,7 @@ class Application(tk.Tk):
         self.v_pause.set(s.pause)
         self.v_audio.set(s.audio)
         self.v_caler.set(s.caler_sur_audio)
+        self.v_defil.set(s.defilement)
         self.v_sensibilite.set(s.sensibilite)
         self._chargement = False
         self._maj_etat_duree()
@@ -418,6 +425,7 @@ class Application(tk.Tk):
                 pass
         s.audio = self.v_audio.get().strip().strip('"')
         s.caler_sur_audio = bool(self.v_caler.get())
+        s.defilement = bool(self.v_defil.get())
         s.sensibilite = int(self.v_sensibilite.get())
         self._marquer_modifie()
         self._maj_etat_duree()

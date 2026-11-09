@@ -27,6 +27,7 @@ class Scene:
     illustration: str = ""      # description d'une illustration sur mesure à faire générer (ChatGPT…)
     illustration_cle: str = ""  # nom du fichier attendu pour cette illustration (illus_03)
     image_secours: str = ""     # visuel d'origine, remplacé par l'illustration générée
+    defilement: bool = False    # le texte s'affiche dans une belle police et défile pendant la lecture
 
 
 @dataclass

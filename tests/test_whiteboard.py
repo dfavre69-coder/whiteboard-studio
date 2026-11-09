@@ -570,3 +570,24 @@ def test_short():
         sp = preparer_scene(Projet(largeur=540, hauteur=960), s)
         for el in sp.elements:
             assert el.x >= 0 and el.y >= 0 and el.x + el.largeur <= 540 and el.y + el.hauteur <= 960
+
+
+def test_texte_defilant(tmp_path):
+    from whiteboard.rendu import image_defilement
+    texte = "\n".join(f"[icone:star] Ligne numéro {i} du texte qui défile" for i in range(20))
+    p = Projet(largeur=640, hauteur=360, fps=12,
+               scenes=[Scene(titre="Défilement", texte=texte, defilement=True, duree_dessin=3, pause=1)])
+    sp = preparer_scene(p, p.scenes[0])
+    df = sp.defil
+    assert df is not None and not sp.elements
+    assert abs(sp.duree - 4) < 1e-6
+    assert df.y_fin < df.y_debut          # le texte monte : on le lit de haut en bas
+    debut, fin = image_defilement(p, df, df.t_debut), image_defilement(p, df, df.t_fin)
+    assert debut.shape == (360, 640, 3) and not np.array_equal(debut, fin)
+    assert image_finale(p, p.scenes[0], largeur=320).size == (320, 180)
+    sortie = tmp_path / "defil.mp4"
+    exporter(p, str(sortie))
+    assert sortie.exists() and sortie.stat().st_size > 1000
+    # le réglage est enregistré avec le projet
+    p.enregistrer(tmp_path / "p.json")
+    assert Projet.charger(tmp_path / "p.json").scenes[0].defilement

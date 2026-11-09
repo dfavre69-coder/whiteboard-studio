@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -90,6 +91,7 @@ class ScenePreparee:
     pause: float
     duree_voix: float = 0.0
     etapes: list[tuple[int, int, int]] = field(default_factory=list)   # (élément, a, b) ou (-1, x, y) déplacement
+    defil: "Defilement | None" = None   # scène « texte défilant » : pas de main, le texte défile
 
     @property
     def duree(self) -> float:
@@ -276,6 +278,8 @@ def preparer_scene(projet: Projet, scene: Scene) -> ScenePreparee:
 
     W, H = projet.largeur, projet.hauteur
     fab = Fabrique(projet, scene)
+    if scene.defilement:
+        return _preparer_defilement(projet, scene, fab)
     elements = [e for e in construire(fab, scene) if e is not None]
     elements = [e for e in (_rogner(e, W, H) for e in elements) if e is not None]
 
@@ -332,6 +336,133 @@ def preparer_scene(projet: Projet, scene: Scene) -> ScenePreparee:
 
 
 # ---------------------------------------------------------------------------
+# Texte défilant
+# ---------------------------------------------------------------------------
+@dataclass
+class Defilement:
+    """Texte qui défile de bas en haut pendant la lecture : on le lit de haut en bas."""
+    texte: np.ndarray        # alpha (h, w) du bloc de texte
+    x: int                   # position horizontale du bloc
+    zone: tuple[int, int]    # bande verticale où le texte est visible (haut, bas)
+    y_debut: float           # position du haut du bloc au début du défilement
+    y_fin: float             # … et à la fin
+    t_debut: float           # instants (s, depuis le début de la scène) du défilement
+    t_fin: float
+    titre: np.ndarray | None = None   # alpha du titre, fixe en haut de l'écran
+    titre_xy: tuple[int, int] = (0, 0)
+
+
+FONDU_DEFIL = 0.5        # apparition du texte
+BORD_DEFIL = 0.14        # part de la zone où le texte s'estompe, en haut et en bas
+
+
+def _texte_defilant(scene: Scene) -> str:
+    """Le texte de la scène, sans les visuels « [icone] » de début de ligne ; à défaut la narration."""
+    texte = scene.texte.strip() or scene.narration.strip()
+    lignes = [re.sub(r"^\s*\[[^\]]*\]\s*", "", l) for l in texte.replace("\r\n", "\n").split("\n")]
+    return "\n".join(lignes).strip()
+
+
+def _bloc_texte(projet: Projet, texte: str, taille: int, largeur_max: int) -> tuple[np.ndarray, int]:
+    fnt = police(projet, taille)
+    lignes = _couper_lignes(texte, fnt, largeur_max)
+    interligne = int(taille * 1.4)
+    largeur = max(1, int(max(fnt.getlength(l) for l in lignes)) + 8)
+    hauteur = interligne * len(lignes) + int(taille * 0.4)
+    alpha = Image.new("L", (largeur, hauteur), 0)
+    d = ImageDraw.Draw(alpha)
+    for i, l in enumerate(lignes):
+        d.text(((largeur - fnt.getlength(l)) / 2, i * interligne), l, font=fnt, fill=255)
+    return np.asarray(alpha).astype(np.float32) / 255, interligne
+
+
+def _preparer_defilement(projet: Projet, scene: Scene, fab: Fabrique) -> ScenePreparee:
+    W, H, R = fab.W, fab.H, fab.R
+    haut = fab.my
+    titre, titre_xy = None, (0, 0)
+    if scene.titre.strip():
+        el = fab.texte(scene.titre, R * (0.085 if fab.vertical else 0.075), W - 2 * fab.mx, lignes_max=2)
+        if el is not None:
+            a = np.abs(el.croquis.astype(np.float32) - np.array(fab.fond, np.float32)).max(axis=2)
+            ecart = max(1.0, float(np.abs(np.array(fab.encre, np.float32) - np.array(fab.fond, np.float32)).max()))
+            titre = np.clip(a / ecart, 0, 1)
+            titre_xy = (int((W - el.largeur) / 2), haut)
+            haut += el.hauteur + int(R * 0.03)
+    zone = (haut, H - fab.my)
+
+    texte = _texte_defilant(scene)
+    taille = int(R * (0.062 if fab.vertical else 0.058))
+    largeur_max = int(W * (0.86 if fab.vertical else 0.7))
+    if texte:
+        bloc, interligne = _bloc_texte(projet, texte, taille, largeur_max)
+    else:
+        bloc, interligne = np.zeros((1, 1), np.float32), taille
+    # Ligne de lecture : la ligne lue se trouve au tiers haut de la zone.
+    lecture = zone[0] + (zone[1] - zone[0]) * 0.3
+    premiere = interligne * 0.55
+    derniere = bloc.shape[0] - interligne * 0.85
+    y_debut = lecture - premiere
+    y_fin = min(y_debut, lecture - derniere)
+
+    # Durées : sur la voix off si elle existe, sinon durée du dessin + pause.
+    d_voix = 0.0
+    if scene.audio and Path(scene.audio).exists():
+        d_voix = duree_audio(scene.audio)
+    if d_voix and scene.caler_sur_audio:
+        total = DECALAGE_VOIX + d_voix + 0.8
+    else:
+        total = scene.duree_dessin + scene.pause
+    total = max(2.0, total)
+    if d_voix:
+        t_debut, t_fin = DECALAGE_VOIX + 0.2, min(total - 0.3, DECALAGE_VOIX + d_voix)
+    else:
+        t_debut, t_fin = FONDU_DEFIL + 0.3, total - 0.6
+    t_fin = max(t_debut + 0.1, t_fin)
+    pause = 0.5
+    defil = Defilement(bloc, int((W - bloc.shape[1]) / 2), zone, y_debut, y_fin, t_debut, t_fin, titre, titre_xy)
+    return ScenePreparee(scene, [], max(0.0, total - DUREE_ENTREE - pause), pause, d_voix, [], defil)
+
+
+def image_defilement(projet: Projet, df: Defilement, t: float) -> np.ndarray:
+    """L'image de la scène « texte défilant » à l'instant t (secondes depuis le début de la scène)."""
+    W, H = projet.largeur, projet.hauteur
+    alpha = np.zeros((H, W), np.float32)
+    if t <= df.t_debut:
+        y = df.y_debut
+    elif t >= df.t_fin:
+        y = df.y_fin
+    else:
+        y = df.y_debut + (df.y_fin - df.y_debut) * (t - df.t_debut) / (df.t_fin - df.t_debut)
+    # Décalage au sous-pixel près : mélange de deux positions entières voisines.
+    yi = math.floor(y)
+    f = y - yi
+    h, w = df.texte.shape
+    z0, z1 = df.zone
+    bloc = df.texte
+    if f > 1e-3:
+        decale = np.zeros((h + 1, w), np.float32)
+        decale[:h] += bloc * (1 - f)
+        decale[1:] += bloc * f
+        bloc, h = decale, h + 1
+    a0, a1 = max(z0, yi), min(z1, yi + h)
+    x0, x1 = max(0, df.x), min(W, df.x + w)
+    if a1 > a0 and x1 > x0:
+        alpha[a0:a1, x0:x1] = bloc[a0 - yi:a1 - yi, x0 - df.x:x1 - df.x]
+        # Fondu en haut et en bas de la zone
+        bord = max(1, int((z1 - z0) * BORD_DEFIL))
+        ys = np.arange(a0, a1, dtype=np.float32)
+        m = np.clip(np.minimum((ys - z0) / bord, (z1 - ys) / (bord * 1.3)), 0, 1)
+        alpha[a0:a1] *= (m * m * (3 - 2 * m))[:, None]
+    alpha *= _lisse(t / FONDU_DEFIL)
+    if df.titre is not None:
+        tx, ty = df.titre_xy
+        th, tw = df.titre.shape
+        zone_t = alpha[ty:ty + th, tx:tx + tw]
+        np.maximum(zone_t, df.titre[:zone_t.shape[0], :zone_t.shape[1]] * _lisse(t / FONDU_DEFIL), out=zone_t)
+    return _composer(alpha, couleur(projet.fond), couleur(projet.encre))
+
+
+# ---------------------------------------------------------------------------
 # Animation
 # ---------------------------------------------------------------------------
 class Animateur:
@@ -361,6 +492,12 @@ class Animateur:
 
     def images_scene(self, sp: ScenePreparee) -> Iterator[np.ndarray]:
         p, fps = self.p, self.p.fps
+        if sp.defil is not None:
+            n = (int(round(DUREE_ENTREE * fps)) + int(round(sp.duree_dessin * fps))
+                 + int(round(sp.pause * fps)))
+            for f in range(n):
+                yield image_defilement(p, sp.defil, f / fps)
+            return
         W, H = p.largeur, p.hauteur
         toile = self.fond.copy()
         hors_ecran = (W * 0.85, H * 1.35)
@@ -559,6 +696,8 @@ def image_finale(projet: Projet, scene: Scene, largeur: int = 960) -> Image.Imag
     f = largeur / p.largeur
     p.largeur, p.hauteur = largeur, int(p.hauteur * f)
     sp = preparer_scene(p, scene)
+    if sp.defil is not None:  # début de la lecture : le texte vient d'apparaître
+        return Image.fromarray(image_defilement(p, sp.defil, sp.defil.t_debut))
     toile = np.empty((p.hauteur, p.largeur, 3), dtype=np.uint8)
     toile[:] = couleur(p.fond)
     for el in sp.elements:
