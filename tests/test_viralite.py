@@ -1,12 +1,11 @@
 """Rythme Short, sous-titres, bande-son, zone sûre 9:16, modèle accroche, miniature et publication."""
 import json
-import wave
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 
-from whiteboard import audio_sfx, publication as P, sous_titres as ST
+from whiteboard import publication as P, sous_titres as ST
 from whiteboard.ia import construire_prompt, projet_depuis_ia, regler_short
 from whiteboard.modeles import MODELES
 from whiteboard.projet import Projet, Scene
@@ -64,7 +63,7 @@ def test_main_reste_entre_les_scenes():
         pass
     assert anim.main_pos == anim.hors_ecran        # … et sort à la fin de la vidéo
     assert len(anim.vitesses) == sum(minutage(p, [sp1, sp2])[0])
-    assert any(v > 0 for v in anim.vitesses)       # journal des vitesses pour le bruit du feutre
+    assert any(v > 0 for v in anim.vitesses)       # journal des vitesses de la pointe
 
 
 # ---------------------------------------------------------------- sous-titres
@@ -109,35 +108,15 @@ def test_incrustation_sous_titres():
 
 
 # ---------------------------------------------------------------- bande-son
-def test_bruitages(tmp_path):
-    fps = 12
-    vitesses = [0.0] * 6 + [8.0] * 24 + [0.0] * 12
-    chemin = audio_sfx.generer(vitesses, [(30, "couleur"), (0, "tampon")], fps, tmp_path / "sfx.wav")
-    with wave.open(chemin) as w:
-        assert w.getframerate() == audio_sfx.FREQ and w.getnchannels() == 1
-        data = np.frombuffer(w.readframes(w.getnframes()), "<i2").astype(float) / 32767
-    assert abs(len(data) - len(vitesses) * audio_sfx.FREQ / fps) < 2
-    s = audio_sfx.FREQ
-    actif = data[int(1.0 * s):int(2.0 * s)]
-    assert np.abs(actif).mean() > 5 * max(1e-6, np.abs(data[int(0.2 * s):int(0.45 * s)]).mean())
-    assert np.abs(data).max() <= 1.0
-    sans = audio_sfx.generer([0.0] * 12, [], fps, tmp_path / "vide.wav", feutre=False)
-    with wave.open(sans) as w:
-        assert not np.frombuffer(w.readframes(w.getnframes()), "<i2").any()
-
-
 def test_graphe_de_mixage():
     from whiteboard.video import PisteAudio
     voix = [PisteAudio("a.wav", 0.25), PisteAudio("b.wav", 4.0)]
-    g = filtre_mixage(2, True, True, 30.0, 0.2, ducking=True, normaliser=True, voix=voix)
+    g = filtre_mixage(2, True, 30.0, 0.2, ducking=True, normaliser=True, voix=voix)
     assert "adelay=delays=250" in g and "adelay=delays=4000" in g
-    assert "sidechaincompress" in g and "loudnorm=I=-14" in g and "amix=inputs=3" in g
+    assert "sidechaincompress" in g and "loudnorm=I=-14" in g and "amix=inputs=2" in g
     assert g.endswith("[a]")
-    g2 = filtre_mixage(1, False, True, 30.0, 0.2, ducking=True, normaliser=True, voix=voix[:1])
-    assert "sidechaincompress" not in g2 and "loudnorm" in g2
-    # seuls les bruitages : pas de normalisation (le crissement doit rester discret)
-    g3 = filtre_mixage(0, False, True, 30.0, 0.2, normaliser=True)
-    assert "loudnorm" not in g3 and "[sfx]apad[mix]" in g3
+    g2 = filtre_mixage(1, False, 30.0, 0.2, ducking=True, normaliser=True, voix=voix[:1])
+    assert "sidechaincompress" not in g2 and "loudnorm" in g2 and "[vmix]apad[mix]" in g2
 
 
 # ---------------------------------------------------------------- zone sûre et accroche
@@ -220,4 +199,4 @@ def test_export_short_complet(tmp_path):
     from whiteboard.video import chemin_ffmpeg
     import subprocess
     info = subprocess.run([chemin_ffmpeg(), "-hide_banner", "-i", str(sortie)], capture_output=True, text=True).stderr
-    assert "Audio: aac" in info   # la piste de bruitages est mixée même sans voix off
+    assert "Audio: aac" not in info   # sans voix off ni musique : pas de piste audio

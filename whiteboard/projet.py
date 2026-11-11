@@ -47,7 +47,6 @@ class Projet:
     volume_musique: float = 0.12
     rythme: str = "normal"      # "normal" ou "short" : entrées/sorties de main et couleurs bien plus brèves
     sous_titres: str = ""       # "", "simple" ou "karaoke" : narration incrustée à l'image
-    bruit_feutre: bool = True   # bruit du feutre synchronisé sur les mouvements de la main
     ducking: bool = True        # la musique s'atténue sous la voix off
     normaliser: bool = True     # niveau sonore normalisé (-14 LUFS, cible YouTube)
     publication: dict = field(default_factory=dict)  # titres, description, hashtags, texte de miniature…

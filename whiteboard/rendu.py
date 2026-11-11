@@ -530,7 +530,7 @@ class Animateur:
         self.pointe = pointe
         self.hors_ecran = (projet.largeur * 0.85, projet.hauteur * 1.35)
         self.main_pos: tuple[float, float] = self.hors_ecran   # où se trouve la pointe entre deux scènes
-        # Journal pour la bande-son : vitesse de la pointe à chaque image (px) et événements (image, genre).
+        # Journal de l'animation : vitesse de la pointe à chaque image (px) et événements (image, genre).
         self.vitesses: list[float] = []
         self.evenements: list[tuple[int, str]] = []
 
@@ -864,20 +864,11 @@ def exporter(projet: Projet, sortie: str, progression: Callable[[float, str], No
         while fait < total:  # arrondis : on complète avec la dernière image
             ecrivain.ecrire(derniere)
             fait += 1
-        if p.bruit_feutre or anim.evenements:
-            from .audio_sfx import generer
-            signaler(fait / total, "Bruitages…")
-            sfx = Path(sortie).with_name(Path(sortie).stem + ".sfx-temp.wav")
-            ecrivain.sfx = generer(anim.vitesses, anim.evenements, p.fps, sfx, feutre=p.bruit_feutre)
     except BaseException:
         ecrivain.annuler()
         raise
     signaler(1.0, "Finalisation de la vidéo…")
-    try:
-        ecrivain.fermer()
-    finally:
-        if ecrivain.sfx and Path(ecrivain.sfx).exists():
-            Path(ecrivain.sfx).unlink()
+    ecrivain.fermer()
     if fichiers_annexes:
         from .publication import ecrire_annexes
         ecrire_annexes(p, sortie, preparees, debuts, groupes)

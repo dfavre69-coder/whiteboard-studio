@@ -267,7 +267,6 @@ class Application(tk.Tk):
         self.v_transition = tk.StringVar()
         self.v_rythme = tk.StringVar()
         self.v_sous_titres = tk.StringVar()
-        self.v_bruit_feutre = tk.BooleanVar(value=True)
         self.v_ducking = tk.BooleanVar(value=True)
         self.v_normaliser = tk.BooleanVar(value=True)
         self.v_musique = tk.StringVar()
@@ -336,9 +335,8 @@ class Application(tk.Tk):
         r += 1
         cadre_a = ttk.Frame(droite)
         cadre_a.grid(row=r, column=0, columnspan=3, sticky="w")
-        ttk.Checkbutton(cadre_a, text="Bruit du feutre", variable=self.v_bruit_feutre).pack(side="left")
-        ttk.Checkbutton(cadre_a, text="Musique atténuée sous la voix", variable=self.v_ducking).pack(side="left", padx=6)
-        ttk.Checkbutton(cadre_a, text="Niveau normalisé (−14 LUFS)", variable=self.v_normaliser).pack(side="left")
+        ttk.Checkbutton(cadre_a, text="Musique atténuée sous la voix", variable=self.v_ducking).pack(side="left")
+        ttk.Checkbutton(cadre_a, text="Niveau normalisé (−14 LUFS)", variable=self.v_normaliser).pack(side="left", padx=6)
         r += 1
         ttk.Separator(droite).grid(row=r, column=0, columnspan=3, sticky="ew", pady=8)
         r += 1
@@ -356,7 +354,7 @@ class Application(tk.Tk):
 
         for v in (self.v_format, self.v_fps, self.v_transition, self.v_rythme, self.v_sous_titres):
             v.trace_add("write", lambda *a: self._reglages_modifies())
-        for v in (self.v_volume, self.v_bruit_feutre, self.v_ducking, self.v_normaliser):
+        for v in (self.v_volume, self.v_ducking, self.v_normaliser):
             v.trace_add("write", lambda *a: self._reglages_modifies(apercu=False))
 
         # --- barre d'état ------------------------------------------------
@@ -385,7 +383,6 @@ class Application(tk.Tk):
         self.v_transition.set(_cle(TRANSITIONS, p.transition))
         self.v_rythme.set(_cle(RYTHMES, p.rythme))
         self.v_sous_titres.set(_cle(SOUS_TITRES, p.sous_titres))
-        self.v_bruit_feutre.set(p.bruit_feutre)
         self.v_ducking.set(p.ducking)
         self.v_normaliser.set(p.normaliser)
         self.v_musique.set(Path(p.musique).name if p.musique else "")
@@ -511,8 +508,7 @@ class Application(tk.Tk):
         p.sous_titres = SOUS_TITRES.get(self.v_sous_titres.get(), "")
         try:
             p.volume_musique = int(self.v_volume.get()) / 100
-            p.bruit_feutre, p.ducking, p.normaliser = (bool(self.v_bruit_feutre.get()), bool(self.v_ducking.get()),
-                                                       bool(self.v_normaliser.get()))
+            p.ducking, p.normaliser = bool(self.v_ducking.get()), bool(self.v_normaliser.get())
         except tk.TclError:
             pass
         self._marquer_modifie()

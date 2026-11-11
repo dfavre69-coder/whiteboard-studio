@@ -9,7 +9,7 @@ Créez des vidéos explicatives « main qui dessine » (*whiteboard animation*) 
 - **Assistant IA** : collez un texte, l'appli prépare le prompt pour Claude, ChatGPT… ou le fait rédiger directement par un modèle local **Ollama** ; la réponse devient un projet complet (scènes, icônes, narration de chaque scène).
 - **Shorts YouTube** : une case dans l'Assistant IA produit une vidéo verticale de moins d'une minute, avec un scénario taillé pour ce format (accroche immédiate, rythme rapide) et des réglages dédiés : rythme « short » sans temps mort, coupes franches, modèle **Accroche** (le texte choc surgit d'un coup puis est surligné), mise en page dans la zone que l'interface de YouTube ne recouvre pas.
 - **Sous-titres incrustés** : la narration s'affiche par groupes de mots, au choix en « karaoké » (le mot prononcé passe en couleur) ; un fichier `.srt` est écrit à côté de la vidéo.
-- **Bande-son soignée** : bruit du feutre synchronisé sur les mouvements de la main (calculé, aucun fichier à fournir), « pop » à l'apparition des couleurs, musique atténuée sous la voix, niveau normalisé à −14 LUFS (la référence YouTube).
+- **Bande-son soignée** : musique atténuée sous la voix, niveau normalisé à −14 LUFS (la référence YouTube).
 - **Prêt à publier** : miniature en un clic (PNG, 1280 × 720 ou 1080 × 1920) et fiche de publication écrite à côté du MP4 : titres proposés par l'IA, description, chapitres horodatés, hashtags, commentaire à épingler, accroches alternatives à tester.
 - **Illustrations sur mesure** (facultatif) : un second prompt, dédié aux images, fait dessiner par ChatGPT des illustrations par lots de 10 ; le zip renvoyé se charge dans l'Assistant et chaque image rejoint sa scène.
 - **Voix off Qwen3-TTS intégrée** : les narrations sont lues par votre voix clonée (ou une voix prédéfinie), puis rattachées aux scènes automatiquement.
@@ -95,9 +95,8 @@ Beaucoup de Shorts sont regardés sans le son. Liste **Sous-titres** : *Simple* 
 
 ### Bande-son
 
-Trois cases à côté du volume de la musique :
+Deux cases à côté du volume de la musique :
 
-- **Bruit du feutre** : un crissement dont le volume suit la vitesse de la pointe, image par image, calculé pendant le rendu ; plus un « pop » quand les couleurs apparaissent et un « tampon » quand une accroche surgit.
 - **Musique atténuée sous la voix** (*ducking*) : la musique baisse dès que la voix parle et remonte ensuite. On peut donc la monter à 25-30 % sans gêner.
 - **Niveau normalisé (−14 LUFS)** : le niveau auquel YouTube ramène les vidéos ; sans cela, un Short sort souvent plus bas que ses voisins du flux.
 
@@ -288,7 +287,7 @@ Le format du projet JSON est simple à générer depuis un autre programme (`mod
   "main": "droite", "transition": "glisser",
   "musique": "musique.mp3", "volume_musique": 0.12,
   "rythme": "normal", "sous_titres": "karaoke",
-  "bruit_feutre": true, "ducking": true, "normaliser": true,
+  "ducking": true, "normaliser": true,
   "publication": {"titres_youtube": ["…"], "description": "…", "hashtags": ["#…"],
                   "texte_miniature": "…", "commentaire_epingle": "…"},
   "scenes": [
@@ -314,8 +313,8 @@ Les vidéos (`*.mp4`) et l'environnement `.venv` sont exclus du dépôt. Les tes
 2. Le croquis est découpé en petites cellules ; un parcours qui suit les traits, bloc après bloc en allant au plus proche, donne l'ordre de dessin. Le texte, lui, est parcouru de gauche à droite.
 3. Pour un dessin vectoriel, la pointe du feutre suit directement les chemins du fichier.
 4. Chaque image de la vidéo révèle les traits suivants et place la pointe du feutre sur le dernier.
-5. Les images sont envoyées directement à ffmpeg (H.264) ; les sous-titres sont incrustés au passage. Pendant le rendu, la vitesse de la pointe à chaque image est notée : elle sert à synthétiser le bruit du feutre.
-6. Un second passage ffmpeg, sans réencoder la vidéo, mixe voix off, musique (atténuée sous la voix), bruitages, et normalise le niveau.
+5. Les images sont envoyées directement à ffmpeg (H.264) ; les sous-titres sont incrustés au passage.
+6. Un second passage ffmpeg, sans réencoder la vidéo, mixe voix off, musique (atténuée sous la voix), et normalise le niveau.
 
 ## Développement
 
@@ -336,7 +335,6 @@ Les vidéos (`*.mp4`) et l'environnement `.venv` sont exclus du dépôt. Les tes
 | `whiteboard/config.py` | réglages enregistrés (`%APPDATA%\WhiteboardStudio\config.json`) |
 | `whiteboard/rendu.py` | mise en page (zone sûre 9:16), rythmes, animation, export |
 | `whiteboard/sous_titres.py` | découpage minuté de la narration, incrustation, fichier .srt |
-| `whiteboard/audio_sfx.py` | bruit du feutre, pop, tampon (synthèse numpy) |
 | `whiteboard/publication.py` | miniature, fiche de publication, chapitres |
 | `whiteboard/main.py` | la main dessinée (générée par le programme) |
 | `whiteboard/video.py` | ffmpeg : encodage, puis mixage audio (ducking, loudnorm) |

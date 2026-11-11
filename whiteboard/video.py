@@ -1,9 +1,8 @@
 """Accès à ffmpeg : durée des fichiers audio et écriture de la vidéo.
 
 La vidéo est produite en deux temps : les images sont encodées en H.264 dans un fichier temporaire,
-puis la bande-son est mixée (voix off, musique atténuée sous la voix, bruitages, normalisation) et
-assemblée avec la vidéo sans la réencoder. On peut donc ajouter une piste calculée pendant le rendu
-(le bruit du feutre) sans tout refaire.
+puis la bande-son est mixée (voix off, musique atténuée sous la voix, normalisation) et
+assemblée avec la vidéo sans la réencoder.
 """
 from __future__ import annotations
 
@@ -46,10 +45,10 @@ class PisteAudio:
     debut: float  # secondes
 
 
-def filtre_mixage(n_voix: int, musique: bool, sfx: bool, duree: float, volume_musique: float,
-                  ducking: bool = True, normaliser: bool = True, volume_sfx: float = 1.0,
+def filtre_mixage(n_voix: int, musique: bool, duree: float, volume_musique: float,
+                  ducking: bool = True, normaliser: bool = True,
                   voix: list[PisteAudio] | None = None) -> str:
-    """Graphe de filtres ffmpeg du mixage. Entrées : 0 = vidéo, 1… = voix, puis musique, puis bruitages."""
+    """Graphe de filtres ffmpeg du mixage. Entrées : 0 = vidéo, 1… = voix, puis musique."""
     voix = voix or []
     filtres, voies = [], []
     i = 1
@@ -80,17 +79,12 @@ def filtre_mixage(n_voix: int, musique: bool, sfx: bool, duree: float, volume_mu
             filtres.append("[mus0]acopy[mus]")
         voies.append("[mus]")
         i += 1
-    if sfx:
-        filtres.append(f"[{i}:a]aformat=sample_rates=48000:channel_layouts=stereo,volume={volume_sfx:.3f}[sfx]")
-        voies.append("[sfx]")
-        i += 1
     if len(voies) == 1:
         filtres.append(f"{voies[0]}apad[mix]")
     else:
         filtres.append(f"{''.join(voies)}amix=inputs={len(voies)}:normalize=0:duration=longest,apad[mix]")
-    if normaliser and (n_voix or musique):
+    if normaliser:
         # -14 LUFS : le niveau auquel YouTube ramène les vidéos ; -1.5 dBTP évite toute saturation.
-        # (Pas de normalisation quand il n'y a que les bruitages : le crissement du feutre doit rester discret.)
         filtres.append("[mix]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]")
     else:
         filtres.append("[mix]alimiter=limit=0.95[a]")
@@ -107,8 +101,6 @@ class EcrivainVideo:
         self.sortie, self.fps, self.duree = sortie, fps, duree
         self.voix, self.musique, self.volume_musique = voix or [], musique, volume_musique
         self.ducking, self.normaliser = ducking, normaliser
-        self.sfx = ""            # piste de bruitages, fournie avant fermer()
-        self.volume_sfx = 1.0
         self._temp = str(Path(sortie).with_name(Path(sortie).stem + ".video-temp.mp4"))
         cmd = [chemin_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
                "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{largeur}x{hauteur}",
@@ -138,9 +130,8 @@ class EcrivainVideo:
         self._fin_video()
         voix = [v for v in self.voix if Path(v.chemin).exists()]
         musique = self.musique if self.musique and Path(self.musique).exists() else ""
-        sfx = self.sfx if self.sfx and Path(self.sfx).exists() else ""
         try:
-            if not voix and not musique and not sfx:
+            if not voix and not musique:
                 shutil.move(self._temp, self.sortie)
                 return
             cmd = [chemin_ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", "-i", self._temp]
@@ -148,10 +139,8 @@ class EcrivainVideo:
                 cmd += ["-i", v.chemin]
             if musique:
                 cmd += ["-stream_loop", "-1", "-i", musique]
-            if sfx:
-                cmd += ["-i", sfx]
-            graphe = filtre_mixage(len(voix), bool(musique), bool(sfx), self.duree, self.volume_musique,
-                                   self.ducking, self.normaliser, self.volume_sfx, voix)
+            graphe = filtre_mixage(len(voix), bool(musique), self.duree, self.volume_musique,
+                                   self.ducking, self.normaliser, voix)
             cmd += ["-filter_complex", graphe, "-map", "0:v", "-map", "[a]",
                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
                     "-t", f"{self.duree:.3f}", self.sortie]
