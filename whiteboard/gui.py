@@ -10,7 +10,7 @@ import threading
 import tkinter as tk
 from copy import deepcopy
 from pathlib import Path
-from tkinter import colorchooser, filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 
 from PIL import ImageTk
 
@@ -28,6 +28,8 @@ TYPES_AUDIO = [("Audio", "*.wav *.mp3 *.m4a *.ogg *.flac *.aac"), ("Tous les fic
 TYPES_PROJET = [("Projet Whiteboard", "*.json")]
 MODES = {"Dessin puis couleurs": "couleur", "Dessin au trait seulement": "trait"}
 TRANSITIONS = {"Glisser vers la gauche": "glisser", "Fondu": "fondu", "Coupe franche": "coupe"}
+RYTHMES = {"Normal (vidéo longue)": "normal", "Short (nerveux, sans temps mort)": "short"}
+SOUS_TITRES = {"Aucun": "", "Simple (groupes de mots)": "simple", "Karaoké (mot en couleur)": "karaoke"}
 FORMATS = {"1920 × 1080 (YouTube, Full HD)": (1920, 1080), "1280 × 720 (HD)": (1280, 720),
            "3840 × 2160 (4K)": (3840, 2160), "1080 × 1920 (Shorts, vertical)": (1080, 1920),
            "1080 × 1080 (carré)": (1080, 1080)}
@@ -147,6 +149,9 @@ class Application(tk.Tk):
         ttk.Button(gauche, text="Associer un dossier de voix off…", command=self.associer_voix).pack(fill="x", pady=1)
         ttk.Label(gauche, text="Illustrations", style="Titre.TLabel").pack(anchor="w", pady=(6, 0))
         ttk.Button(gauche, text="Prompt des illustrations (ChatGPT)…", command=self.illustrations_ia).pack(fill="x", pady=1)
+        ttk.Label(gauche, text="Publication", style="Titre.TLabel").pack(anchor="w", pady=(6, 0))
+        ttk.Button(gauche, text="Exporter la miniature (PNG)…", command=self.exporter_miniature).pack(fill="x", pady=1)
+        ttk.Button(gauche, text="Fiche de publication (titres, description…)", command=self.fiche_publication).pack(fill="x", pady=1)
         self.label_duree = ttk.Label(gauche, text="", foreground="#555")
         self.label_duree.pack(anchor="w", pady=(6, 0))
 
@@ -260,6 +265,11 @@ class Application(tk.Tk):
         self.v_fps = tk.StringVar()
         self.v_main = tk.StringVar()
         self.v_transition = tk.StringVar()
+        self.v_rythme = tk.StringVar()
+        self.v_sous_titres = tk.StringVar()
+        self.v_bruit_feutre = tk.BooleanVar(value=True)
+        self.v_ducking = tk.BooleanVar(value=True)
+        self.v_normaliser = tk.BooleanVar(value=True)
         self.v_musique = tk.StringVar()
         self.v_volume = tk.IntVar()
         self.v_police = tk.StringVar()
@@ -282,6 +292,17 @@ class Application(tk.Tk):
         ttk.Label(droite, text="Transition").grid(row=r, column=0, sticky="w", pady=3)
         ttk.Combobox(droite, textvariable=self.v_transition, values=list(TRANSITIONS), state="readonly",
                      width=22).grid(row=r, column=1, columnspan=2, sticky="ew")
+        r += 1
+        ttk.Label(droite, text="Rythme").grid(row=r, column=0, sticky="w", pady=3)
+        ttk.Combobox(droite, textvariable=self.v_rythme, values=list(RYTHMES), state="readonly",
+                     width=22).grid(row=r, column=1, columnspan=2, sticky="ew")
+        r += 1
+        ttk.Label(droite, text="Sous-titres").grid(row=r, column=0, sticky="w", pady=3)
+        ttk.Combobox(droite, textvariable=self.v_sous_titres, values=list(SOUS_TITRES), state="readonly",
+                     width=22).grid(row=r, column=1, columnspan=2, sticky="ew")
+        r += 1
+        ttk.Button(droite, text="Régler pour un Short (vertical, rythme, coupes, karaoké)",
+                   command=self.regler_short).grid(row=r, column=0, columnspan=3, sticky="ew", pady=(0, 4))
         r += 1
         ttk.Label(droite, text="Couleurs").grid(row=r, column=0, sticky="w", pady=3)
         cadre_c = ttk.Frame(droite)
@@ -313,6 +334,12 @@ class Application(tk.Tk):
         ttk.Scale(droite, from_=0, to=60, variable=self.v_volume,
                   command=lambda v: self.v_volume.set(int(float(v)))).grid(row=r, column=1, columnspan=2, sticky="ew")
         r += 1
+        cadre_a = ttk.Frame(droite)
+        cadre_a.grid(row=r, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(cadre_a, text="Bruit du feutre", variable=self.v_bruit_feutre).pack(side="left")
+        ttk.Checkbutton(cadre_a, text="Musique atténuée sous la voix", variable=self.v_ducking).pack(side="left", padx=6)
+        ttk.Checkbutton(cadre_a, text="Niveau normalisé (−14 LUFS)", variable=self.v_normaliser).pack(side="left")
+        r += 1
         ttk.Separator(droite).grid(row=r, column=0, columnspan=3, sticky="ew", pady=8)
         r += 1
         aide = ("Astuces\n"
@@ -327,9 +354,10 @@ class Application(tk.Tk):
             row=r, column=0, columnspan=3, sticky="w")
         droite.columnconfigure(1, weight=1)
 
-        for v in (self.v_format, self.v_fps, self.v_transition):
+        for v in (self.v_format, self.v_fps, self.v_transition, self.v_rythme, self.v_sous_titres):
             v.trace_add("write", lambda *a: self._reglages_modifies())
-        self.v_volume.trace_add("write", lambda *a: self._reglages_modifies(apercu=False))
+        for v in (self.v_volume, self.v_bruit_feutre, self.v_ducking, self.v_normaliser):
+            v.trace_add("write", lambda *a: self._reglages_modifies(apercu=False))
 
         # --- barre d'état ------------------------------------------------
         etat = ttk.Frame(self, padding=(8, 4))
@@ -355,6 +383,11 @@ class Application(tk.Tk):
         self.v_fps.set(str(p.fps))
         self.v_main.set({"droite": "Main droite", "gauche": "Main gauche"}.get(p.main, "Image personnalisée…"))
         self.v_transition.set(_cle(TRANSITIONS, p.transition))
+        self.v_rythme.set(_cle(RYTHMES, p.rythme))
+        self.v_sous_titres.set(_cle(SOUS_TITRES, p.sous_titres))
+        self.v_bruit_feutre.set(p.bruit_feutre)
+        self.v_ducking.set(p.ducking)
+        self.v_normaliser.set(p.normaliser)
         self.v_musique.set(Path(p.musique).name if p.musique else "")
         self.v_volume.set(int(round(p.volume_musique * 100)))
         self.v_police.set(Path(p.police).name if p.police else "Manuscrite (fournie)")
@@ -474,8 +507,12 @@ class Application(tk.Tk):
         except ValueError:
             pass
         p.transition = TRANSITIONS.get(self.v_transition.get(), "glisser")
+        p.rythme = RYTHMES.get(self.v_rythme.get(), "normal")
+        p.sous_titres = SOUS_TITRES.get(self.v_sous_titres.get(), "")
         try:
             p.volume_musique = int(self.v_volume.get()) / 100
+            p.bruit_feutre, p.ducking, p.normaliser = (bool(self.v_bruit_feutre.get()), bool(self.v_ducking.get()),
+                                                       bool(self.v_normaliser.get()))
         except tk.TclError:
             pass
         self._marquer_modifie()
@@ -975,6 +1012,64 @@ class Application(tk.Tk):
         sortie = str(Path(tempfile.gettempdir()) / f"whiteboard_apercu_scene{self.index + 1}.mp4")
         self._demarrer_rendu(sortie, echelle=0.5, indices=[self.index], ouvrir=True)
 
+    def regler_short(self) -> None:
+        """Format vertical, rythme nerveux, coupes franches, sous-titres karaoké : les réglages d'un Short."""
+        from .ia import regler_short
+        regler_short(self.projet)
+        self._marquer_modifie()
+        self._rafraichir_tout()
+        self.label_etat.configure(text="Réglages Short appliqués : 1080 × 1920, rythme nerveux, coupes, sous-titres karaoké.")
+
+    def exporter_miniature(self) -> None:
+        """La miniature YouTube : la scène la plus parlante, avec le texte choc de l'IA (modifiable)."""
+        from . import publication as P
+        if not self.projet.scenes:
+            return
+        scene = P.scene_miniature(self.projet)
+        if self.scene is not scene and messagebox.askyesno(
+                TITRE_APP, f"Utiliser la scène sélectionnée ({self.index + 1}) plutôt que la scène "
+                           f"« {scene.titre or scene.modele} » choisie automatiquement ?"):
+            scene = self.scene
+        defaut = self.projet.publication.get("texte_miniature") or scene.titre or ""
+        texte = simpledialog.askstring(TITRE_APP, "Texte de la miniature (2 à 4 mots, lisibles en petit) :",
+                                       initialvalue=defaut, parent=self)
+        if texte is None:
+            return
+        initial = (self.chemin.stem if self.chemin else "ma-video") + "_miniature.png"
+        f = filedialog.asksaveasfilename(title="Enregistrer la miniature", defaultextension=".png",
+                                         initialfile=initial, filetypes=[("Image PNG", "*.png"), ("Image JPEG", "*.jpg")])
+        if not f:
+            return
+        try:
+            P.exporter_miniature(self.projet, scene, f, texte)
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror(TITRE_APP, f"Impossible de créer la miniature :\n{e}")
+            return
+        self.label_etat.configure(text=f"Miniature enregistrée : {f}")
+        if messagebox.askyesno(TITRE_APP, f"Miniature créée :\n{f}\n\nL'ouvrir maintenant ?"):
+            ouvrir_fichier(f)
+
+    def fiche_publication(self) -> None:
+        """Titres, description, hashtags, commentaire à épingler : à coller dans YouTube Studio."""
+        from .publication import texte_publication
+        fen = tk.Toplevel(self)
+        fen.title("Fiche de publication")
+        fen.geometry("640x520")
+        zone = tk.Text(fen, wrap="word", font=("Segoe UI", 10))
+        zone.pack(fill="both", expand=True, padx=8, pady=8)
+        zone.insert("1.0", texte_publication(self.projet))
+        bas = ttk.Frame(fen, padding=(8, 0, 8, 8))
+        bas.pack(fill="x")
+        ttk.Label(bas, text="La fiche complète (avec les chapitres) est écrite à côté du MP4 à chaque export.",
+                  foreground="#555").pack(side="left")
+
+        def copier():
+            self.clipboard_clear()
+            self.clipboard_append(zone.get("1.0", "end").strip())
+            fen.title("Fiche de publication — copiée")
+
+        ttk.Button(bas, text="Copier", command=copier).pack(side="right")
+
     def exporter(self) -> None:
         initial = (self.chemin.stem if self.chemin else "ma-video") + ".mp4"
         f = filedialog.asksaveasfilename(title="Exporter la vidéo", defaultextension=".mp4",
@@ -1039,7 +1134,9 @@ class Application(tk.Tk):
                     self.label_etat.configure(text=f"Vidéo prête : {msg[1]}")
                     if msg[2]:
                         ouvrir_fichier(msg[1])
-                    elif messagebox.askyesno(TITRE_APP, f"Vidéo créée :\n{msg[1]}\n\nL'ouvrir maintenant ?"):
+                    elif messagebox.askyesno(TITRE_APP, f"Vidéo créée :\n{msg[1]}\n\nÀ côté : la fiche de publication "
+                                             f"(_publication.txt){' et les sous-titres (.srt)' if self.projet.sous_titres else ''}."
+                                             f"\n\nL'ouvrir maintenant ?"):
                         ouvrir_fichier(msg[1])
                 elif genre == "annule":
                     self._fin_rendu()

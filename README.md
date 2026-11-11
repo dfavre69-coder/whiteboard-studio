@@ -7,7 +7,10 @@ Créez des vidéos explicatives « main qui dessine » (*whiteboard animation*) 
 ## Fonctionnalités
 
 - **Assistant IA** : collez un texte, l'appli prépare le prompt pour Claude, ChatGPT… ou le fait rédiger directement par un modèle local **Ollama** ; la réponse devient un projet complet (scènes, icônes, narration de chaque scène).
-- **Shorts YouTube** : une case dans l'Assistant IA produit une vidéo verticale de moins d'une minute, avec un scénario taillé pour ce format (accroche immédiate, rythme rapide).
+- **Shorts YouTube** : une case dans l'Assistant IA produit une vidéo verticale de moins d'une minute, avec un scénario taillé pour ce format (accroche immédiate, rythme rapide) et des réglages dédiés : rythme « short » sans temps mort, coupes franches, modèle **Accroche** (le texte choc surgit d'un coup puis est surligné), mise en page dans la zone que l'interface de YouTube ne recouvre pas.
+- **Sous-titres incrustés** : la narration s'affiche par groupes de mots, au choix en « karaoké » (le mot prononcé passe en couleur) ; un fichier `.srt` est écrit à côté de la vidéo.
+- **Bande-son soignée** : bruit du feutre synchronisé sur les mouvements de la main (calculé, aucun fichier à fournir), « pop » à l'apparition des couleurs, musique atténuée sous la voix, niveau normalisé à −14 LUFS (la référence YouTube).
+- **Prêt à publier** : miniature en un clic (PNG, 1280 × 720 ou 1080 × 1920) et fiche de publication écrite à côté du MP4 : titres proposés par l'IA, description, chapitres horodatés, hashtags, commentaire à épingler, accroches alternatives à tester.
 - **Illustrations sur mesure** (facultatif) : un second prompt, dédié aux images, fait dessiner par ChatGPT des illustrations par lots de 10 ; le zip renvoyé se charge dans l'Assistant et chaque image rejoint sa scène.
 - **Voix off Qwen3-TTS intégrée** : les narrations sont lues par votre voix clonée (ou une voix prédéfinie), puis rattachées aux scènes automatiquement.
 - **Scènes prédéfinies** : titre de chapitre, liste à puces, étapes reliées par des flèches, comparaison, chiffre clé, citation, fin de vidéo. Il suffit de remplir le texte.
@@ -72,7 +75,39 @@ Le projet s'enregistre en `.json`. Les chemins des images et sons sont stockés 
 
 ![Assistant IA](docs/assistant.png)
 
-Cochez **Short (vertical, < 1 min)** pour un Short YouTube : la durée visée passe à 45 secondes, le prompt ajoute des règles propres au format (une accroche dans les deux premières secondes, 5 à 8 scènes, narrations de 8 à 25 mots, peu d'éléments par scène pour l'écran étroit, fin éclair), les pauses sont raccourcies et le projet passe en 1080 × 1920. Après création, l'appli affiche la durée estimée et prévient si elle dépasse une minute.
+Cochez **Short (vertical, < 1 min)** pour un Short YouTube : la durée visée passe à 45 secondes, le prompt ajoute des règles propres au format (une accroche dès la première seconde avec le modèle « accroche », une boucle ouverte résolue en fin de vidéo, 5 à 8 scènes, narrations de 8 à 25 mots, peu d'éléments par scène pour l'écran étroit, fin éclair sur une question qui pousse à commenter), et le projet reçoit les réglages Short (ci-dessous). Après création, l'appli affiche la durée estimée et prévient si elle dépasse une minute.
+
+L'IA renvoie aussi un bloc **publication** (titres YouTube, description, hashtags, texte de miniature, commentaire à épingler, variantes d'accroche) conservé dans le projet : voir « Publier ».
+
+### Des Shorts qui retiennent le pouce
+
+Sur téléphone, chaque seconde sans nouveauté à l'écran fait décrocher. Les réglages d'un Short (bouton **Régler pour un Short** dans la fenêtre principale, automatiques depuis l'Assistant IA, ou `python -m whiteboard short projet.json`) :
+
+- **Rythme « short »** (liste *Rythme*) : la main arrive sur le premier trait en 0,1 s, ne sort pas de l'écran entre deux scènes (elle file au trait suivant), les couleurs apparaissent en 0,3 s, le tracé est rapide au début (le visuel se reconnaît tout de suite), la pause finale ne dépasse jamais une seconde et un zoom lent évite l'image figée. Sur un Short de 7 scènes, c'est une quinzaine de secondes de temps mort en moins.
+- **Coupes franches** : toute transition est du temps mort sur un écran étroit.
+- **Modèle « Accroche (Short) »** : la phrase choc est lisible dès la première image (effet tampon), puis la main passe un coup de surligneur dessous et dessine le visuel. Un titre dessiné lettre à lettre n'est lisible qu'après deux ou trois secondes : trop tard.
+- **Zone sûre 9:16** : l'interface de YouTube recouvre le bas de l'écran (titre, chaîne, description) et une colonne à droite (j'aime, commentaires, partage). En vertical, toutes les mises en page se tiennent dans la zone visible, et une bande est réservée aux sous-titres juste au-dessus de l'interface.
+- **Fin éclair** : en rythme short, la scène « Fin » sans actions affiche une seule invitation à commenter. Le Short rejoue en boucle : une fin courte relance le début.
+
+### Sous-titres incrustés
+
+Beaucoup de Shorts sont regardés sans le son. Liste **Sous-titres** : *Simple* (le groupe de mots en cours) ou *Karaoké* (groupes de trois mots, le mot prononcé en couleur). Les sous-titres suivent la voix off de la scène : avec une voix générée par Qwen3-TTS, le minutage mot à mot (proportionnel à la longueur des mots, avec une respiration après la ponctuation) colle à la diction. Sans voix off, ils occupent la durée de la scène. À l'export complet, un fichier **`.srt`** est écrit à côté du MP4 (YouTube l'indexe aussi).
+
+### Bande-son
+
+Trois cases à côté du volume de la musique :
+
+- **Bruit du feutre** : un crissement dont le volume suit la vitesse de la pointe, image par image, calculé pendant le rendu ; plus un « pop » quand les couleurs apparaissent et un « tampon » quand une accroche surgit.
+- **Musique atténuée sous la voix** (*ducking*) : la musique baisse dès que la voix parle et remonte ensuite. On peut donc la monter à 25-30 % sans gêner.
+- **Niveau normalisé (−14 LUFS)** : le niveau auquel YouTube ramène les vidéos ; sans cela, un Short sort souvent plus bas que ses voisins du flux.
+
+La vidéo est encodée en deux temps (images, puis mixage audio sans réencoder) : ces options ne ralentissent pas le rendu.
+
+### Publier
+
+- **Exporter la miniature (PNG)…** : la scène la plus parlante (un chiffre, un personnage, l'accroche…) ou la scène sélectionnée, avec un texte très court sur bandeaux jaunes, en 1280 × 720 (ou 1080 × 1920 pour un Short). Le texte proposé est celui de l'IA (`texte_miniature`).
+- **Fiche de publication** : titres, description, hashtags, commentaire à épingler, accroches alternatives. À chaque export complet, la fiche `nom-de-la-video_publication.txt` est écrite à côté du MP4, avec les **chapitres horodatés** (scènes « Titre de chapitre ») à coller dans la description.
+- Pour tester plusieurs accroches, `rendu --scenes 1` rend la première scène seule : changez son titre avec une des variantes et comparez.
 
 L'IA découpe le texte en scènes et joue le rôle de **metteur en scène** : le prompt lui apprend à choisir le bon modèle (graphique dès qu'il y a des chiffres comparables, frise pour les dates, personnage pour poser une question ou montrer une émotion…), à composer des visuels et à garder les mêmes personnages d'une scène à l'autre. Elle écrit aussi la **narration** de chaque scène (le texte de la voix off, distinct des mots clés affichés). L'import est tolérant : bloc ```` ```json ````, virgule en trop, modèle mal orthographié ou icône inexistante sont corrigés automatiquement, et la liste des corrections s'affiche. Sans voix off, la durée de chaque scène est estimée d'après la longueur de sa narration.
 
@@ -125,6 +160,7 @@ Le prompt est modifiable : `whiteboard/assets/prompt_video.md`.
 |---|---|---|
 | Image et texte | titre en haut | légende sous le visuel |
 | Titre de chapitre | grand titre souligné | sous-titre |
+| Accroche (Short) | la phrase choc, affichée d'un coup puis surlignée | précision courte (facultatif) |
 | Liste à puces | titre de la liste | un point par ligne (coche, ou icône) |
 | Étapes reliées | titre du processus | une étape par ligne, reliées par des flèches |
 | Comparaison | titre | une colonne par ligne (2 ou 3), « VS » entre deux colonnes |
@@ -234,17 +270,27 @@ Utile pour automatiser la production :
 .venv\Scripts\python -m whiteboard tts mon-projet.json            # seulement les voix nouvelles ou modifiées
 .venv\Scripts\python -m whiteboard tts mon-projet.json --toutes   # toutes
 
+# Shorts et publication
+.venv\Scripts\python -m whiteboard short mon-projet.json                 # copie du projet en Short (vertical, rythme, coupes, karaoké)
+.venv\Scripts\python -m whiteboard rendu mon-projet.json --miniature     # vidéo + .srt + fiche de publication + miniature
+.venv\Scripts\python -m whiteboard miniature mon-projet.json --texte "3 erreurs" --scene 2
+.venv\Scripts\python -m whiteboard publication mon-projet.json
+
 # Créer le projet de démonstration
 .venv\Scripts\python -m whiteboard demo dossier-demo
 ```
 
-Le format du projet JSON est simple à générer depuis un autre programme (`modele` : `libre`, `titre`, `liste`, `etapes`, `comparaison`, `chiffre`, `citation`, `fin` ; `image` accepte aussi `clipart:nom` et `icone:nom`) :
+Le format du projet JSON est simple à générer depuis un autre programme (`modele` : `libre`, `titre`, `accroche`, `liste`, `etapes`, `comparaison`, `chiffre`, `citation`, `graphique`, `proportion`, `chronologie`, `personnage`, `fin` ; `image` accepte aussi `clipart:nom` et `icone:nom` ; `rythme` : `normal` ou `short` ; `sous_titres` : `""`, `simple` ou `karaoke`) :
 
 ```json
 {
   "largeur": 1920, "hauteur": 1080, "fps": 30,
   "main": "droite", "transition": "glisser",
   "musique": "musique.mp3", "volume_musique": 0.12,
+  "rythme": "normal", "sous_titres": "karaoke",
+  "bruit_feutre": true, "ducking": true, "normaliser": true,
+  "publication": {"titres_youtube": ["…"], "description": "…", "hashtags": ["#…"],
+                  "texte_miniature": "…", "commentaire_epingle": "…"},
   "scenes": [
     {"modele": "libre", "titre": "Introduction", "image": "images/ampoule.png", "texte": "Une idée",
      "mode": "couleur", "duree_dessin": 6, "pause": 2,
@@ -268,7 +314,8 @@ Les vidéos (`*.mp4`) et l'environnement `.venv` sont exclus du dépôt. Les tes
 2. Le croquis est découpé en petites cellules ; un parcours qui suit les traits, bloc après bloc en allant au plus proche, donne l'ordre de dessin. Le texte, lui, est parcouru de gauche à droite.
 3. Pour un dessin vectoriel, la pointe du feutre suit directement les chemins du fichier.
 4. Chaque image de la vidéo révèle les traits suivants et place la pointe du feutre sur le dernier.
-5. Les images sont envoyées directement à ffmpeg (H.264), qui mixe voix off et musique au passage.
+5. Les images sont envoyées directement à ffmpeg (H.264) ; les sous-titres sont incrustés au passage. Pendant le rendu, la vitesse de la pointe à chaque image est notée : elle sert à synthétiser le bruit du feutre.
+6. Un second passage ffmpeg, sans réencoder la vidéo, mixe voix off, musique (atténuée sous la voix), bruitages, et normalise le niveau.
 
 ## Développement
 
@@ -287,9 +334,12 @@ Les vidéos (`*.mp4`) et l'environnement `.venv` sont exclus du dépôt. Les tes
 | `whiteboard/ollama.py` | client Ollama (flux continu, JSON, sans réflexion) |
 | `whiteboard/tts.py`, `tts_worker.py` | pilotage de Qwen3-TTS dans son propre environnement |
 | `whiteboard/config.py` | réglages enregistrés (`%APPDATA%\WhiteboardStudio\config.json`) |
-| `whiteboard/rendu.py` | mise en page, animation, export |
+| `whiteboard/rendu.py` | mise en page (zone sûre 9:16), rythmes, animation, export |
+| `whiteboard/sous_titres.py` | découpage minuté de la narration, incrustation, fichier .srt |
+| `whiteboard/audio_sfx.py` | bruit du feutre, pop, tampon (synthèse numpy) |
+| `whiteboard/publication.py` | miniature, fiche de publication, chapitres |
 | `whiteboard/main.py` | la main dessinée (générée par le programme) |
-| `whiteboard/video.py` | ffmpeg : encodage et mixage audio |
+| `whiteboard/video.py` | ffmpeg : encodage, puis mixage audio (ducking, loudnorm) |
 | `whiteboard/gui.py` | interface Tkinter |
 | `whiteboard/projet.py` | format des projets |
 

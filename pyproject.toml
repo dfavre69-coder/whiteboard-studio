@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whiteboard-studio"
-version = "1.9.0"
+version = "2.0.0"
 description = "Vidéos « main qui dessine » (whiteboard animation) pour YouTube"
 readme = "README.md"
 license = { text = "MIT" }

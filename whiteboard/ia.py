@@ -32,10 +32,12 @@ SECTION_SHORT = """
 
 Cette vidéo est un Short YouTube : écran vertical 9:16, regardé sur téléphone, en moins d'une minute (visée : {SECONDES} secondes). Ces règles remplacent les règles contraires plus haut.
 - 5 à 8 scènes, rythme rapide. La narration de chaque scène fait 8 à 25 mots ; le total de la narration ne dépasse pas {MOTS} mots.
-- La première scène est une accroche qui retient le pouce dès les deux premières secondes : une question intrigante (modèle "personnage"), un chiffre étonnant tiré du texte (modèle "chiffre") ou un titre choc (modèle "titre"). Sa narration commence directement par l'accroche, sans « Bonjour » ni présentation.
+- La première scène est l'accroche : elle doit retenir le pouce dès la première seconde. Utilise le modèle "accroche" (titre = la phrase choc, 8 mots au plus, lisible d'un coup d'œil ; image = un visuel fort ; texte = précision facultative) ou, si le texte source s'y prête mieux, "chiffre" (un chiffre étonnant) ou "personnage" (une question directe au spectateur). Formules qui marchent : une promesse chiffrée (« 3 erreurs qui… »), un contre-pied (« Non, X ne… »), un secret (« Personne ne vous dit que… »), une question en « vous ». La narration de cette scène commence directement par l'accroche, sans « Bonjour » ni présentation.
+- Boucle ouverte : la scène 1 pose une question ou une promesse dont la réponse n'arrive qu'à l'avant-dernière scène ; au milieu, relance l'attention une fois (« et le pire, c'est que… », « mais il y a un piège »).
 - L'écran est étroit : titres de 25 caractères au plus, 3 lignes au plus dans "liste" et "etapes", 2 colonnes au plus dans "comparaison", 4 barres au plus dans "graphique", 4 dates au plus dans "chronologie".
 - Une seule idée forte par scène, dite simplement ; pas de transition du type « voyons maintenant ».
-- La dernière scène reste "fin", avec une narration de 10 mots au plus qui invite à s'abonner.
+- La dernière scène reste "fin" mais très courte : titre = une seule question qui pousse à commenter (8 mots au plus), texte = "" ; narration de 10 mots au plus. Pas de « abonnez-vous, likez, commentez » à rallonge : le Short rejoue en boucle, la fin doit relancer le début.
+- Dans "publication", propose en plus "variantes_accroche" : deux autres phrases choc pour la scène 1, afin de tester plusieurs versions du Short.
 """
 EXTENSIONS_AUDIO = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".aac", ".opus"}
 
@@ -178,6 +180,7 @@ def _sans_accents(s: str) -> str:
 SYNONYMES = {
     "libre": "libre", "image": "libre", "illustration": "libre", "image-texte": "libre", "imageettexte": "libre",
     "titre": "titre", "title": "titre", "chapitre": "titre", "intro": "titre", "introduction": "titre",
+    "accroche": "accroche", "hook": "accroche", "accrocheshort": "accroche", "choc": "accroche",
     "liste": "liste", "list": "liste", "puces": "liste", "listeapuces": "liste", "bullets": "liste",
     "etapes": "etapes", "etape": "etapes", "steps": "etapes", "processus": "etapes",
     "etapesreliees": "etapes",
@@ -377,6 +380,14 @@ def projet_depuis_ia(reponse: str, base: Projet | None = None, short: bool = Fal
     projet = Projet.depuis_dict(base.vers_dict()) if base is not None else Projet()
     projet.scenes = []
     remarques: list[str] = []
+    if isinstance(donnees, dict):
+        from .publication import normaliser_publication
+        pub = normaliser_publication(donnees.get("publication"))
+        titre_video = str(donnees.get("titre_video") or "").strip()
+        if titre_video and not pub.get("titres_youtube"):
+            pub["titres_youtube"] = [titre_video]
+        if pub:
+            projet.publication = pub
     for i, brute in enumerate(brutes, start=1):
         if not isinstance(brute, dict):
             remarques.append(f"Scène {i} ignorée (format inattendu).")
@@ -407,10 +418,18 @@ def projet_depuis_ia(reponse: str, base: Projet | None = None, short: bool = Fal
     if not projet.scenes:
         raise ReponseIllisible("Aucune scène exploitable dans la réponse.")
     if short:
-        projet.largeur, projet.hauteur = FORMAT_SHORT
-        if projet.transition == "glisser":
-            projet.transition = "fondu"  # plus court à l'œil sur un écran étroit
+        regler_short(projet)
     return projet, remarques
+
+
+def regler_short(projet: Projet) -> Projet:
+    """Réglages d'un Short : format vertical, rythme nerveux, coupes franches, sous-titres karaoké."""
+    projet.largeur, projet.hauteur = FORMAT_SHORT
+    projet.rythme = "short"
+    projet.transition = "coupe"        # toute transition est du temps mort sur téléphone
+    if not projet.sous_titres:
+        projet.sous_titres = "karaoke"  # beaucoup de Shorts sont regardés sans le son
+    return projet
 
 
 # ---------------------------------------------------------------------------
@@ -494,8 +513,9 @@ def projet_texte_defilant(texte: str, base: Projet | None = None, short: bool = 
         scene.duree_dessin = max(2.0, round(mots / MOTS_PAR_SECONDE + 1.0 - scene.pause, 1))
         projet.scenes.append(scene)
     if short:
-        projet.largeur, projet.hauteur = FORMAT_SHORT
-    if projet.transition == "glisser":
+        regler_short(projet)
+        projet.sous_titres = ""       # le texte est déjà à l'écran
+    if projet.transition in ("glisser", "coupe"):
         projet.transition = "fondu"   # d'un passage à l'autre, un fondu reste discret
     return projet
 

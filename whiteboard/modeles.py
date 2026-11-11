@@ -40,6 +40,11 @@ MODELES: dict[str, InfoModele] = {
         "Titre de chapitre", "Un grand titre souligné, un sous-titre et une icône facultative.",
         "Grand titre", "Sous-titre",
         dict(titre="Chapitre 1", texte="Les bases à connaître", image="icone:book")),
+    "accroche": InfoModele(
+        "Accroche (Short)", "Le texte choc est lisible dès la première image (effet tampon), puis la main "
+                            "le surligne et dessine le visuel. Pour retenir le pouce en moins de deux secondes.",
+        "La phrase choc (8 mots max.)", "Précision courte sous le visuel (facultatif)",
+        dict(titre="Personne ne vous dit ça", texte="et pourtant tout en dépend", image="clipart:ampoule")),
     "liste": InfoModele(
         "Liste à puces", "Des points qui s'écrivent l'un après l'autre, avec coches ou icônes.",
         "Titre de la liste", "Un point par ligne — [icône] au début pour remplacer la coche",
@@ -87,6 +92,7 @@ MODELES: dict[str, InfoModele] = {
 }
 
 ACTIONS_FIN = "[clipart:cloche] Abonnez-vous\n[clipart:pouce-vers-le-haut] J'aime\n[clipart:bulle-de-parole] Commentez"
+ACTIONS_FIN_SHORT = "[clipart:bulle-de-parole] Dites-le en commentaire"   # un Short se termine vite, sur une question
 
 
 def analyser_items(texte: str) -> list[tuple[str | None, str]]:
@@ -248,6 +254,41 @@ def modele_titre(fab, sc: Scene):
         y += R * 0.04 + ecart
     if sous is not None:
         elements.append(sous.placer(cx=W / 2, y=y))
+    return elements
+
+
+SURLIGNEUR = (255, 212, 59)   # jaune du surligneur de l'accroche
+
+
+def modele_accroche(fab, sc: Scene):
+    """Accroche de Short : le titre surgit d'un coup (il ne se dessine pas lettre à lettre, trop lent pour
+    retenir le spectateur), puis la main passe un coup de surligneur dessous et dessine le visuel."""
+    W, H, R = fab.W, fab.H, fab.R
+    cr = _crayon(fab, sc)
+    elements = []
+    titre = fab.texte(sc.titre.strip() or "…", R * (0.125 if fab.vertical else 0.115), W - 2 * fab.mx,
+                      lignes_max=3, gras=True)
+    titre.instant = True
+    texte = fab.texte(sc.texte, R * 0.062, W - 2 * fab.mx, lignes_max=2)
+    a_image = bool(sc.image.strip())
+    h_texte = (texte.hauteur + R * 0.03) if texte is not None else 0
+    ep = R * 0.022
+    if a_image:
+        titre.placer(cx=W / 2, y=fab.my + R * 0.02)
+    else:
+        titre.placer(cx=W / 2, cy=(H - h_texte) / 2)
+    elements.append(titre)
+    # coup de surligneur sous la dernière ligne du titre
+    y_ligne = titre.y + titre.hauteur - R * 0.035
+    larg = min(titre.largeur, W - 2 * fab.mx) * 0.9
+    x0 = titre.x + titre.largeur / 2 - larg / 2
+    elements.append(fab.traits([cr.souligne(x0, x0 + larg, y_ligne)], ep, SURLIGNEUR))
+    haut = titre.y + titre.hauteur + R * 0.05
+    bas = H - fab.my - h_texte
+    if a_image and bas - haut > R * 0.12:
+        elements.append(_visuel_centre(fab, sc.image, W / 2, (haut + bas) / 2, W - 2 * fab.mx, bas - haut))
+    if texte is not None:
+        elements.append(texte.placer(cx=W / 2, y=H - fab.my - texte.hauteur))
     return elements
 
 
@@ -457,7 +498,8 @@ def modele_fin(fab, sc: Scene):
     if titre is not None:
         elements.append(titre.placer(cx=W / 2, y=haut + R * 0.03))
         haut = titre.y + titre.hauteur + R * 0.05
-    items = analyser_items(sc.texte.strip() or ACTIONS_FIN)[:4]
+    defaut = ACTIONS_FIN_SHORT if fab.p.rythme == "short" else ACTIONS_FIN
+    items = analyser_items(sc.texte.strip() or defaut)[:4]
     n = max(1, len(items))
     bas = H - fab.my
     if not fab.vertical:
@@ -472,7 +514,7 @@ def modele_fin(fab, sc: Scene):
                 elements.append(lab.placer(cx=cx, y=cy + s / 2 + R * 0.03))
     else:
         ligne = (bas - haut) / n
-        s = ligne * 0.55
+        s = min(ligne * 0.55, (W - 2 * fab.mx) * 0.3)
         for i, (visuel, libelle) in enumerate(items):
             cy = haut + ligne * (i + 0.5)
             elements.append(_visuel_centre(fab, visuel, fab.mx + s / 2, cy, s, s))
@@ -757,7 +799,8 @@ def modele_personnage(fab, sc: Scene):
 
 
 FONCTIONS = {
-    "libre": modele_libre, "titre": modele_titre, "liste": modele_liste, "etapes": modele_etapes,
+    "libre": modele_libre, "titre": modele_titre, "accroche": modele_accroche, "liste": modele_liste,
+    "etapes": modele_etapes,
     "comparaison": modele_comparaison, "chiffre": modele_chiffre, "citation": modele_citation,
     "fin": modele_fin, "graphique": modele_graphique, "proportion": modele_proportion,
     "chronologie": modele_chronologie, "personnage": modele_personnage,

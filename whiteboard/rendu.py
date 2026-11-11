@@ -27,6 +27,47 @@ DUREE_SORTIE = 0.45      # la main sort
 DUREE_COULEUR = 0.8      # apparition des couleurs
 DUREE_TRANSITION = 0.6
 DECALAGE_VOIX = 0.25     # la voix démarre peu après le début de la scène
+DUREE_POP = 0.22         # apparition « tampon » d'un élément instantané (modèle accroche)
+
+
+@dataclass(frozen=True)
+class Rythme:
+    """Cadence de l'animation. Le rythme « short » supprime les temps morts qui font décrocher sur téléphone."""
+    entree: float          # la main arrive sur le premier trait
+    sortie: float          # la main quitte l'écran en fin de scène
+    couleur: float         # apparition des couleurs
+    transition: float      # durée des transitions glisser / fondu
+    main_reste: bool       # la main ne sort pas entre deux scènes : elle file au trait suivant
+    acceleration: float    # 1 = tracé régulier ; > 1 = rapide au début, le visuel apparaît vite
+    zoom_pause: float      # zoom lent pendant la pause finale (0 = image fixe)
+
+
+RYTHMES: dict[str, Rythme] = {
+    "normal": Rythme(DUREE_ENTREE, DUREE_SORTIE, DUREE_COULEUR, DUREE_TRANSITION, False, 1.0, 0.0),
+    "short": Rythme(0.12, 0.3, 0.3, 0.25, True, 1.7, 0.035),
+}
+
+
+def rythme(projet: Projet) -> Rythme:
+    return RYTHMES.get(projet.rythme, RYTHMES["normal"])
+
+
+def zone_sure(projet: Projet) -> tuple[int, int]:
+    """Largeur et hauteur utiles pour la mise en page.
+
+    En vertical (Shorts), l'interface de YouTube recouvre le bas de l'écran (titre, chaîne) et une colonne
+    à droite (j'aime, commentaires, partage) : on n'y place rien. Avec des sous-titres incrustés, une bande
+    leur est réservée en plus.
+    """
+    W, H = projet.largeur, projet.hauteur
+    vertical = H > W * 1.15
+    if vertical:
+        w = int(W * 0.90)
+        h = int(H * (0.72 if projet.sous_titres else 0.84))
+    else:
+        w = W
+        h = int(H * (0.90 if projet.sous_titres else 1.0))
+    return w, h
 
 
 class Annule(Exception):
@@ -60,6 +101,7 @@ class Element:
     taille_cellule: int = 8
     points: np.ndarray | None = None   # dessin vectoriel : parcours (x, y, rayon) de la main
     lecture: bool = False              # texte : tracé de gauche à droite
+    instant: bool = False              # affiché d'un coup (effet tampon) au lieu d'être dessiné par la main
 
     @property
     def largeur(self) -> int:
@@ -92,10 +134,11 @@ class ScenePreparee:
     duree_voix: float = 0.0
     etapes: list[tuple[int, int, int]] = field(default_factory=list)   # (élément, a, b) ou (-1, x, y) déplacement
     defil: "Defilement | None" = None   # scène « texte défilant » : pas de main, le texte défile
+    entree: float = DUREE_ENTREE        # durée d'arrivée de la main (dépend du rythme)
 
     @property
     def duree(self) -> float:
-        return DUREE_ENTREE + self.duree_dessin + self.pause
+        return self.entree + self.duree_dessin + self.pause
 
 
 def _couper_lignes(texte: str, fnt: ImageFont.FreeTypeFont, largeur_max: int) -> list[str]:
@@ -142,16 +185,18 @@ class Fabrique:
 
     def __init__(self, projet: Projet, scene: Scene):
         self.p, self.scene = projet, scene
-        self.W, self.H = projet.largeur, projet.hauteur
-        self.R = min(self.W, self.H)            # référence des tailles (marche aussi en vertical)
+        self.ecran = (projet.largeur, projet.hauteur)
+        self.W, self.H = zone_sure(projet)      # zone où l'on met en page (le reste est réservé à l'interface)
+        self.R = min(self.ecran)                # référence des tailles (marche aussi en vertical)
         self.mx, self.my = int(self.W * 0.06), int(self.H * 0.06)
         self.fond, self.encre = couleur(projet.fond), couleur(projet.encre)
         self.trait = max(2.0, self.R * 0.0045)  # épaisseur du feutre
-        self.vertical = self.H > self.W * 1.15
+        self.vertical = self.ecran[1] > self.ecran[0] * 1.15
 
     # --- textes ------------------------------------------------------------
     def texte(self, texte: str, taille: float, largeur_max: float, lignes_max: int | None = None,
-              aligne: str = "centre", couleur_texte=None) -> Element | None:
+              aligne: str = "centre", couleur_texte=None, gras: bool = False) -> Element | None:
+        """Texte manuscrit. `gras` épaissit le trait (titres d'accroche, lisibles d'un coup d'œil)."""
         texte = texte.strip()
         if not texte:
             return None
@@ -162,14 +207,15 @@ class Fabrique:
             taille = int(taille * 0.9)
             fnt = police(self.p, taille)
             lignes = _couper_lignes(texte, fnt, int(largeur_max))
+        epais = max(1, round(taille / 22)) if gras else 0
         interligne = int(taille * 1.2)
-        largeur = max(1, int(max(fnt.getlength(l) for l in lignes)) + 8)
-        hauteur = interligne * len(lignes) + int(taille * 0.35)
+        largeur = max(1, int(max(fnt.getlength(l) for l in lignes)) + 8 + 2 * epais)
+        hauteur = interligne * len(lignes) + int(taille * 0.35) + 2 * epais
         alpha = Image.new("L", (largeur, hauteur), 0)
         d = ImageDraw.Draw(alpha)
         for i, l in enumerate(lignes):
-            x = 4 if aligne == "gauche" else (largeur - fnt.getlength(l)) / 2
-            d.text((x, i * interligne), l, font=fnt, fill=255)
+            x = 4 + epais if aligne == "gauche" else (largeur - fnt.getlength(l)) / 2
+            d.text((x, i * interligne + epais), l, font=fnt, fill=255, stroke_width=epais, stroke_fill=255)
         a = np.asarray(alpha).astype(np.float32) / 255
         return Element(0, 0, _composer(a, self.fond, couleur_texte or self.encre), a > 0.08, None,
                        taille_cellule=max(3, round(taille / 7)), lecture=True)
@@ -226,8 +272,8 @@ class Fabrique:
                        points=r.points)
 
     # --- traits à main levée ----------------------------------------------
-    def traits(self, polylignes: list, epaisseur: float | None = None) -> Element | None:
-        """Traits en coordonnées écran (flèches, soulignés, cercles…)."""
+    def traits(self, polylignes: list, epaisseur: float | None = None, couleur_trait=None) -> Element | None:
+        """Traits en coordonnées écran (flèches, soulignés, cercles…) ; `couleur_trait` pour un surligneur."""
         polys = [np.asarray(p, dtype=np.float64) for p in polylignes if len(p) >= 2]
         if not polys:
             return None
@@ -248,7 +294,7 @@ class Fabrique:
             for q in _reechantillonner(loc, max(1.2, r * 0.7)):
                 points.append((q[0], q[1], r))
         a = np.asarray(alpha.resize((w, h), Image.LANCZOS)).astype(np.float32) / 255
-        return Element(ox, oy, _composer(a, self.fond, self.encre), a > 0.03, None,
+        return Element(ox, oy, _composer(a, self.fond, couleur_trait or self.encre), a > 0.03, None,
                        points=np.array(points, dtype=np.float32).reshape(-1, 3))
 
 
@@ -270,7 +316,7 @@ def _rogner(el: Element, W: int, H: int) -> Element | None:
         pts = pts[garde]
     return Element(el.x + x0, el.y + y0, el.croquis[y0:y1, x0:x1], el.couverture[y0:y1, x0:x1],
                    None if el.finale is None else el.finale[y0:y1, x0:x1], [], el.taille_cellule,
-                   pts, el.lecture)
+                   pts, el.lecture, el.instant)
 
 
 def preparer_scene(projet: Projet, scene: Scene) -> ScenePreparee:
@@ -301,6 +347,8 @@ def preparer_scene(projet: Projet, scene: Scene) -> ScenePreparee:
                                int(precedent[1] + (cy - precedent[1]) * f)))
 
     for i, el in enumerate(elements):
+        if el.instant:  # affiché d'un coup : la main ne le trace pas
+            continue
         if el.points is not None:
             for k, (px, py, r) in enumerate(el.points):
                 cx, cy = el.x + float(px), el.y + float(py)
@@ -320,19 +368,22 @@ def preparer_scene(projet: Projet, scene: Scene) -> ScenePreparee:
             main_pos = precedent
 
     # Durées
+    ry = rythme(projet)
     duree_dessin, pause, d_voix = scene.duree_dessin, scene.pause, 0.0
     a_couleur = any(e.finale is not None for e in elements)
-    pause_min = DUREE_SORTIE + (DUREE_COULEUR if a_couleur else 0) + 0.3
+    pause_min = ry.sortie + (ry.couleur if a_couleur else 0) + (0.15 if ry.main_reste else 0.3)
+    if ry.main_reste:
+        pause = min(pause, max(pause_min, 1.0))   # rythme short : jamais plus d'une seconde d'arrêt sur image
     if scene.audio and Path(scene.audio).exists():
         d_voix = duree_audio(scene.audio)
         if scene.caler_sur_audio:
-            total = DECALAGE_VOIX + d_voix + 0.5
-            pause = max(pause_min, min(scene.pause, total * 0.4))
-            duree_dessin = max(1.5, total - DUREE_ENTREE - pause)
+            total = DECALAGE_VOIX + d_voix + (0.3 if ry.main_reste else 0.5)
+            pause = max(pause_min, min(pause, total * 0.4))
+            duree_dessin = max(1.0 if ry.main_reste else 1.5, total - ry.entree - pause)
     pause = max(pause, pause_min)
     if not etapes:
         duree_dessin = 0.0
-    return ScenePreparee(scene, elements, max(0.0, duree_dessin), pause, d_voix, etapes)
+    return ScenePreparee(scene, elements, max(0.0, duree_dessin), pause, d_voix, etapes, entree=ry.entree)
 
 
 # ---------------------------------------------------------------------------
@@ -419,8 +470,9 @@ def _preparer_defilement(projet: Projet, scene: Scene, fab: Fabrique) -> ScenePr
         t_debut, t_fin = FONDU_DEFIL + 0.3, total - 0.6
     t_fin = max(t_debut + 0.1, t_fin)
     pause = 0.5
+    entree = rythme(projet).entree
     defil = Defilement(bloc, int((W - bloc.shape[1]) / 2), zone, y_debut, y_fin, t_debut, t_fin, titre, titre_xy)
-    return ScenePreparee(scene, [], max(0.0, total - DUREE_ENTREE - pause), pause, d_voix, [], defil)
+    return ScenePreparee(scene, [], max(0.0, total - entree - pause), pause, d_voix, [], defil, entree=entree)
 
 
 def image_defilement(projet: Projet, df: Defilement, t: float) -> np.ndarray:
@@ -468,6 +520,7 @@ def image_defilement(projet: Projet, df: Defilement, t: float) -> np.ndarray:
 class Animateur:
     def __init__(self, projet: Projet):
         self.p = projet
+        self.ry = rythme(projet)
         self.fond = np.empty((projet.hauteur, projet.largeur, 3), dtype=np.uint8)
         self.fond[:] = couleur(projet.fond)
         main, pointe = charger_main(projet.main, projet.pointe_main, min(projet.largeur, projet.hauteur),
@@ -475,6 +528,11 @@ class Animateur:
         self.main_rgb = main[..., :3].astype(np.float32)
         self.main_a = main[..., 3:].astype(np.float32) / 255
         self.pointe = pointe
+        self.hors_ecran = (projet.largeur * 0.85, projet.hauteur * 1.35)
+        self.main_pos: tuple[float, float] = self.hors_ecran   # où se trouve la pointe entre deux scènes
+        # Journal pour la bande-son : vitesse de la pointe à chaque image (px) et événements (image, genre).
+        self.vitesses: list[float] = []
+        self.evenements: list[tuple[int, str]] = []
 
     def poser_main(self, image: np.ndarray, x: float, y: float) -> None:
         """Dessine la main avec la pointe du feutre en (x, y)."""
@@ -490,23 +548,59 @@ class Animateur:
         zone = image[y0:y1, x0:x1].astype(np.float32)
         image[y0:y1, x0:x1] = (m * a + zone * (1 - a)).astype(np.uint8)
 
-    def images_scene(self, sp: ScenePreparee) -> Iterator[np.ndarray]:
-        p, fps = self.p, self.p.fps
+    def _zoom(self, img: np.ndarray, k: float) -> np.ndarray:
+        """Zoom avant léger centré (effet « Ken Burns ») : l'image reste vivante pendant la pause."""
+        if k <= 1.0005:
+            return img
+        H, W = img.shape[:2]
+        w, h = int(round(W / k)), int(round(H / k))
+        x0, y0 = (W - w) // 2, (H - h) // 2
+        return cv2.resize(img[y0:y0 + h, x0:x0 + w], (W, H), interpolation=cv2.INTER_LINEAR)
+
+    @staticmethod
+    def _coller_instant(img: np.ndarray, el: Element, echelle: float = 1.0) -> None:
+        """Pose un élément instantané, éventuellement agrandi autour de son centre (effet tampon)."""
+        H, W = img.shape[:2]
+        if abs(echelle - 1.0) < 1e-3:
+            x0, y0 = el.x, el.y
+            croquis, couv = el.croquis, el.couverture
+        else:
+            w, h = max(1, int(round(el.largeur * echelle))), max(1, int(round(el.hauteur * echelle)))
+            croquis = cv2.resize(el.croquis, (w, h), interpolation=cv2.INTER_LINEAR)
+            couv = cv2.resize(el.couverture.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST) > 0
+            x0, y0 = int(round(el.x + el.largeur / 2 - w / 2)), int(round(el.y + el.hauteur / 2 - h / 2))
+        h, w = croquis.shape[:2]
+        ax0, ay0, ax1, ay1 = max(0, x0), max(0, y0), min(W, x0 + w), min(H, y0 + h)
+        if ax1 <= ax0 or ay1 <= ay0:
+            return
+        sx, sy = ax0 - x0, ay0 - y0
+        zone = img[ay0:ay1, ax0:ax1]
+        m = couv[sy:sy + (ay1 - ay0), sx:sx + (ax1 - ax0)]
+        zone[m] = croquis[sy:sy + (ay1 - ay0), sx:sx + (ax1 - ax0)][m]
+
+    def _journal(self, vitesse: float, evenement: str | None = None) -> None:
+        if evenement:
+            self.evenements.append((len(self.vitesses), evenement))
+        self.vitesses.append(float(vitesse))
+
+    def images_scene(self, sp: ScenePreparee, derniere: bool = True) -> Iterator[np.ndarray]:
+        p, fps, ry = self.p, self.p.fps, self.ry
         if sp.defil is not None:
-            n = (int(round(DUREE_ENTREE * fps)) + int(round(sp.duree_dessin * fps))
-                 + int(round(sp.pause * fps)))
+            n = int(round(sp.entree * fps)) + int(round(sp.duree_dessin * fps)) + int(round(sp.pause * fps))
+            self.main_pos = self.hors_ecran
             for f in range(n):
+                self._journal(0.0)
                 yield image_defilement(p, sp.defil, f / fps)
             return
-        W, H = p.largeur, p.hauteur
         toile = self.fond.copy()
-        hors_ecran = (W * 0.85, H * 1.35)
-        n_entree = int(round(DUREE_ENTREE * fps))
+        n_entree = int(round(sp.entree * fps))
         n_dessin = int(round(sp.duree_dessin * fps))
         n_pause = int(round(sp.pause * fps))
-        n_sortie = int(round(DUREE_SORTIE * fps))
-        n_couleur = int(round(DUREE_COULEUR * fps))
+        n_sortie = int(round(ry.sortie * fps))
+        n_couleur = int(round(ry.couleur * fps))
+        n_pop = max(1, int(round(DUREE_POP * fps)))
         etapes = sp.etapes
+        instants = [el for el in sp.elements if el.instant]
 
         def centre(etape):
             i, a, b = etape
@@ -542,30 +636,64 @@ class Animateur:
             cible = toile[el.y + ys:el.y + ye, el.x + xs:el.x + xe]
             cible[cov] = el.croquis[ys:ye, xs:xe][cov]
 
-        premier = centre(etapes[0]) if etapes else hors_ecran
+        poses = [False]
 
-        # 1. la main entre
+        def image_avec_instants(base: np.ndarray, f_global: int) -> np.ndarray:
+            """Copie de la toile, avec les éléments instantanés : effet tampon (agrandis puis à leur taille)
+            sur les premières images, puis posés définitivement sur la toile."""
+            if f_global >= n_pop and not poses[0]:
+                for el in instants:
+                    self._coller_instant(base, el)
+                poses[0] = True
+            img = base.copy()
+            if f_global < n_pop:
+                k = _lisse((f_global + 1) / n_pop)
+                echelle = 1.0 + 0.35 * (1 - k)
+                for el in instants:
+                    self._coller_instant(img, el, echelle)
+            return img
+
+        premier = centre(etapes[0]) if etapes else (self.main_pos if ry.main_reste else self.hors_ecran)
+        depart = self.main_pos if (ry.main_reste and self.main_pos != self.hors_ecran) else self.hors_ecran
+        f_global = 0
+        if instants:
+            self.evenements.append((len(self.vitesses), "tampon"))
+
+        # 1. la main arrive sur le premier trait (de l'extérieur, ou de là où elle était)
+        mx, my = depart
         for f in range(n_entree):
             k = _lisse((f + 1) / max(1, n_entree))
-            img = toile.copy()
-            self.poser_main(img, hors_ecran[0] + (premier[0] - hors_ecran[0]) * k,
-                            hors_ecran[1] + (premier[1] - hors_ecran[1]) * k)
+            nx, ny = depart[0] + (premier[0] - depart[0]) * k, depart[1] + (premier[1] - depart[1]) * k
+            self._journal(0.0)
+            mx, my = nx, ny
+            img = image_avec_instants(toile, f_global)
+            self.poser_main(img, mx, my)
+            f_global += 1
             yield img
+        if not n_entree:
+            mx, my = premier
 
         # 2. le dessin
         fait = 0
-        mx, my = premier
         for f in range(n_dessin):
-            cible_n = len(etapes) if f == n_dessin - 1 else int(len(etapes) * (f + 1) / n_dessin)
+            if f == n_dessin - 1:
+                cible_n = len(etapes)
+            else:
+                t = (f + 1) / n_dessin
+                part = 1 - (1 - t) ** ry.acceleration   # rythme short : rapide au début
+                cible_n = int(len(etapes) * part)
             while fait < cible_n:
                 reveler(etapes[fait])
                 fait += 1
+            ax, ay = mx, my
             if fait:
                 tx, ty = centre(etapes[fait - 1])
                 mx, my = mx + (tx - mx) * 0.6, my + (ty - my) * 0.6
+            self._journal(math.hypot(mx - ax, my - ay))
             temps = f / fps
-            img = toile.copy()
+            img = image_avec_instants(toile, f_global)
             self.poser_main(img, mx + 1.5 * math.sin(temps * 17), my + 1.5 * math.cos(temps * 13))
+            f_global += 1
             yield img
         while fait < len(etapes):  # sécurité (durée nulle)
             reveler(etapes[fait])
@@ -573,29 +701,43 @@ class Animateur:
         # Les aplats foncés des dessins vectoriels ne sont révélés qu'autour de leur contour :
         # on complète le croquis à la fin du tracé.
         for el in sp.elements:
-            if el.points is not None:
+            if el.points is not None and not el.instant:
                 zone = toile[el.y:el.y + el.hauteur, el.x:el.x + el.largeur]
                 zone[el.couverture] = el.croquis[el.couverture]
+        if not poses[0]:
+            for el in instants:
+                self._coller_instant(toile, el)
 
-        # 3. la main sort, les couleurs apparaissent, pause
+        # 3. les couleurs apparaissent, la main sort (ou reste prête pour la scène suivante), pause
         trait = toile.copy()
         couleur_finale = trait.copy()
         for el in sp.elements:
             _coller_finale(couleur_finale, el, self.fond[0, 0])
         a_couleur = any(el.finale is not None for el in sp.elements)
+        main_sort = derniere or not ry.main_reste
+        if a_couleur:
+            self.evenements.append((len(self.vitesses), "couleur"))
         for f in range(n_pause):
             if a_couleur and f < n_couleur:
                 k = _lisse((f + 1) / n_couleur)
                 img = (trait.astype(np.float32) * (1 - k) + couleur_finale.astype(np.float32) * k).astype(np.uint8)
             else:
                 img = (couleur_finale if a_couleur else trait).copy()
-            if f < n_sortie:
-                k = _lisse((f + 1) / max(1, n_sortie))
-                self.poser_main(img, mx + (hors_ecran[0] - mx) * k, my + (hors_ecran[1] - my) * k)
+            if main_sort:
+                if f < n_sortie:
+                    k = _lisse((f + 1) / max(1, n_sortie))
+                    self.poser_main(img, mx + (self.hors_ecran[0] - mx) * k, my + (self.hors_ecran[1] - my) * k)
+            else:
+                temps = f / fps
+                self.poser_main(img, mx + 1.2 * math.sin(temps * 5), my + 1.2 * math.cos(temps * 4))
+            self._journal(0.0)
+            if ry.zoom_pause > 0 and n_pause > 1:
+                img = self._zoom(img, 1.0 + ry.zoom_pause * _lisse(f / (n_pause - 1)))
             yield img
+        self.main_pos = self.hors_ecran if main_sort else (mx, my)
 
     def transition(self, avant: np.ndarray, apres: np.ndarray) -> Iterator[np.ndarray]:
-        n = int(round(DUREE_TRANSITION * self.p.fps))
+        n = int(round(self.ry.transition * self.p.fps))
         mode = self.p.transition
         if mode == "coupe" or n == 0:
             return
@@ -609,6 +751,7 @@ class Animateur:
                 img[:, W - dx:] = apres[:, :dx]
             else:  # fondu
                 img = (avant.astype(np.float32) * (1 - k) + apres.astype(np.float32) * k).astype(np.uint8)
+            self._journal(0.0)
             yield img
 
 
@@ -620,10 +763,42 @@ def _lisse(t: float) -> float:
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
+def minutage(projet: Projet, preparees: list[ScenePreparee]) -> tuple[list[int], int, float]:
+    """Nombre d'images par scène, nombre d'images de transition et durée totale (s)."""
+    ry = rythme(projet)
+    trans = 0 if projet.transition == "coupe" else int(round(ry.transition * projet.fps))
+    n_scenes = [int(round(sp.entree * projet.fps)) + int(round(sp.duree_dessin * projet.fps))
+                + int(round(sp.pause * projet.fps)) for sp in preparees]
+    total = sum(n_scenes) + trans * (len(preparees) - 1)
+    return n_scenes, trans, total / projet.fps
+
+
+def _groupes_sous_titres(projet: Projet, sp: ScenePreparee):
+    """Groupes de mots minutés de la narration d'une scène (vide si pas de sous-titres)."""
+    from .ia import MOTS_PAR_SECONDE
+    from .sous_titres import decouper
+
+    if not projet.sous_titres or sp.defil is not None or not sp.scene.narration.strip():
+        return []
+    if sp.duree_voix > 0:
+        debut, duree = DECALAGE_VOIX, sp.duree_voix
+    else:
+        # Sans voix off : au rythme d'une lecture posée, mais en occupant la scène (les mots restent lisibles
+        # jusqu'au bout plutôt que de disparaître avant la fin du dessin).
+        mots = len(sp.scene.narration.split())
+        disponible = max(0.5, sp.duree - DECALAGE_VOIX - 0.3)
+        debut, duree = DECALAGE_VOIX, min(disponible, max(1.0, mots / MOTS_PAR_SECONDE, disponible * 0.8))
+    return decouper(sp.scene.narration, debut, max(0.5, duree), projet.sous_titres)
+
+
 def exporter(projet: Projet, sortie: str, progression: Callable[[float, str], None] | None = None,
              arret: threading.Event | None = None, echelle: float = 1.0,
-             indices: list[int] | None = None) -> str:
-    """Fabrique la vidéo. `echelle` < 1 donne un aperçu rapide en basse définition."""
+             indices: list[int] | None = None, fichiers_annexes: bool | None = None) -> str:
+    """Fabrique la vidéo. `echelle` < 1 donne un aperçu rapide en basse définition.
+
+    Avec `fichiers_annexes` (par défaut : pour un export complet en pleine définition), écrit aussi à côté
+    du MP4 les sous-titres (.srt) et la fiche de publication (titres, description, chapitres…).
+    """
     from copy import deepcopy
 
     p = deepcopy(projet)
@@ -634,6 +809,8 @@ def exporter(projet: Projet, sortie: str, progression: Callable[[float, str], No
     scenes = [p.scenes[i] for i in indices] if indices is not None else p.scenes
     if not scenes:
         raise ValueError("Le projet ne contient aucune scène.")
+    if fichiers_annexes is None:
+        fichiers_annexes = echelle == 1.0 and indices is None
 
     def signaler(f, msg):
         if progression:
@@ -647,21 +824,26 @@ def exporter(projet: Projet, sortie: str, progression: Callable[[float, str], No
         preparees.append(preparer_scene(p, sc))
 
     anim = Animateur(p)
-    trans = 0 if p.transition == "coupe" else int(round(DUREE_TRANSITION * p.fps))
-    n_scenes = [int(round(DUREE_ENTREE * p.fps)) + int(round(sp.duree_dessin * p.fps))
-                + int(round(sp.pause * p.fps)) for sp in preparees]
+    n_scenes, trans, duree = minutage(p, preparees)
     total = sum(n_scenes) + trans * (len(preparees) - 1)
-    duree = total / p.fps
 
-    voix, t = [], 0.0
+    voix, t, debuts = [], 0.0, []
     for sp, n in zip(preparees, n_scenes):
+        debuts.append(t)
         if sp.scene.audio and Path(sp.scene.audio).exists():
             voix.append(PisteAudio(sp.scene.audio, t + DECALAGE_VOIX))
         t += (n + trans) / p.fps
     musique = p.musique if p.musique and Path(p.musique).exists() else ""
 
+    sous_titres = None
+    groupes = [_groupes_sous_titres(p, sp) for sp in preparees]
+    if p.sous_titres and any(groupes):
+        from .sous_titres import RenduSousTitres
+        sous_titres = RenduSousTitres(p)
+
     Path(sortie).parent.mkdir(parents=True, exist_ok=True)
-    ecrivain = EcrivainVideo(sortie, p.largeur, p.hauteur, p.fps, duree, voix, musique, p.volume_musique)
+    ecrivain = EcrivainVideo(sortie, p.largeur, p.hauteur, p.fps, duree, voix, musique, p.volume_musique,
+                             ducking=p.ducking, normaliser=p.normaliser)
     fait, derniere = 0, None
     try:
         for i, sp in enumerate(preparees):
@@ -669,20 +851,36 @@ def exporter(projet: Projet, sortie: str, progression: Callable[[float, str], No
                 for img in anim.transition(derniere, anim.fond):
                     ecrivain.ecrire(img)
                     fait += 1
-            for img in anim.images_scene(sp):
+            f_scene = 0
+            for img in anim.images_scene(sp, derniere=(i == len(preparees) - 1)):
+                if sous_titres is not None and groupes[i]:
+                    img = sous_titres.appliquer(img, groupes[i], f_scene / p.fps, i)
                 ecrivain.ecrire(img)
                 derniere = img
                 fait += 1
+                f_scene += 1
                 if fait % 5 == 0:
                     signaler(fait / total, f"Scène {i + 1}/{len(preparees)} — image {fait}/{total}")
         while fait < total:  # arrondis : on complète avec la dernière image
             ecrivain.ecrire(derniere)
             fait += 1
+        if p.bruit_feutre or anim.evenements:
+            from .audio_sfx import generer
+            signaler(fait / total, "Bruitages…")
+            sfx = Path(sortie).with_name(Path(sortie).stem + ".sfx-temp.wav")
+            ecrivain.sfx = generer(anim.vitesses, anim.evenements, p.fps, sfx, feutre=p.bruit_feutre)
     except BaseException:
         ecrivain.annuler()
         raise
     signaler(1.0, "Finalisation de la vidéo…")
-    ecrivain.fermer()
+    try:
+        ecrivain.fermer()
+    finally:
+        if ecrivain.sfx and Path(ecrivain.sfx).exists():
+            Path(ecrivain.sfx).unlink()
+    if fichiers_annexes:
+        from .publication import ecrire_annexes
+        ecrire_annexes(p, sortie, preparees, debuts, groupes)
     if progression:
         progression(1.0, "Terminé")
     return sortie

@@ -37,6 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("-o", "--sortie", help="fichier MP4 (par défaut : à côté du projet)")
     r.add_argument("--apercu", action="store_true", help="rendu rapide en basse définition")
     r.add_argument("--scenes", help="numéros des scènes à rendre, ex. 1,3")
+    r.add_argument("--sans-annexes", action="store_true", help="ne pas écrire le .srt ni la fiche de publication")
+    r.add_argument("--miniature", action="store_true", help="écrire aussi la miniature (PNG) à côté de la vidéo")
 
     dm = sous.add_parser("demo", help="créer le projet de démonstration")
     dm.add_argument("dossier", nargs="?", default="demo")
@@ -91,6 +93,21 @@ def main(argv: list[str] | None = None) -> int:
     im = sous.add_parser("images", help="rattacher aux scènes les images d'un ou plusieurs zip")
     im.add_argument("projet")
     im.add_argument("fichiers", nargs="+", help="zip ou images")
+
+    mi = sous.add_parser("miniature", help="fabriquer la miniature YouTube (PNG) d'un projet")
+    mi.add_argument("projet")
+    mi.add_argument("-o", "--sortie", help="fichier PNG (par défaut : nom-du-projet_miniature.png)")
+    mi.add_argument("--scene", type=int, help="numéro de la scène à utiliser (défaut : la plus parlante)")
+    mi.add_argument("--texte", default="", help="texte de la miniature (défaut : celui de l'IA, sinon le titre)")
+
+    pu = sous.add_parser("publication", help="afficher la fiche de publication (titres, description, hashtags…)")
+    pu.add_argument("projet")
+    pu.add_argument("-o", "--sortie", help="fichier texte (sinon : affichée)")
+
+    sh = sous.add_parser("short", help="passer un projet en Short : vertical, rythme nerveux, sous-titres")
+    sh.add_argument("projet")
+    sh.add_argument("-o", "--sortie", help="projet JSON à créer (défaut : nom-du-projet_short.json)")
+    sh.add_argument("--sous-titres", choices=["", "simple", "karaoke"], default="karaoke")
 
     args = ap.parse_args(argv)
 
@@ -234,6 +251,42 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{len(res.associees)} illustration(s) rattachée(s) ; projet enregistré.")
         return 0
 
+    if args.commande == "miniature":
+        from . import publication as P
+        chemin = Path(args.projet)
+        p = Projet.charger(chemin)
+        if not p.scenes:
+            print("Le projet ne contient aucune scène.")
+            return 1
+        scene = p.scenes[args.scene - 1] if args.scene else P.scene_miniature(p)
+        sortie = args.sortie or str(chemin.with_name(chemin.stem + "_miniature.png"))
+        P.exporter_miniature(p, scene, sortie, args.texte)
+        print(f"Miniature créée : {sortie}")
+        return 0
+
+    if args.commande == "publication":
+        from .publication import texte_publication
+        p = Projet.charger(args.projet)
+        fiche = texte_publication(p)
+        if args.sortie:
+            Path(args.sortie).write_text(fiche, encoding="utf-8")
+            print(f"Fiche écrite dans {args.sortie}")
+        else:
+            sys.stdout.reconfigure(encoding="utf-8")
+            print(fiche)
+        return 0
+
+    if args.commande == "short":
+        from .ia import regler_short
+        chemin = Path(args.projet)
+        p = regler_short(Projet.charger(chemin))
+        p.sous_titres = args.sous_titres
+        sortie = Path(args.sortie) if args.sortie else chemin.with_name(chemin.stem + "_short.json")
+        p.enregistrer(sortie)
+        print(f"Projet Short ({p.largeur} × {p.hauteur}, rythme « short », sous-titres « {p.sous_titres or 'aucun'} ») "
+              f"→ {sortie}")
+        return 0
+
     from .rendu import exporter
     chemin = Path(args.projet)
     p = Projet.charger(chemin)
@@ -242,6 +295,12 @@ def main(argv: list[str] | None = None) -> int:
         indices = [int(x) - 1 for x in args.scenes.split(",") if x.strip()]
     sortie = args.sortie or str(chemin.with_name(chemin.stem + ("_apercu" if args.apercu else "") + ".mp4"))
     debut = time.time()
-    exporter(p, sortie, _barre, echelle=0.5 if args.apercu else 1.0, indices=indices)
+    exporter(p, sortie, _barre, echelle=0.5 if args.apercu else 1.0, indices=indices,
+             fichiers_annexes=False if args.sans_annexes else None)
     print(f"\nVidéo créée : {sortie}  ({time.time() - debut:.0f} s)")
+    if args.miniature and p.scenes:
+        from . import publication as P
+        png = str(Path(sortie).with_name(Path(sortie).stem + "_miniature.png"))
+        P.exporter_miniature(p, P.scene_miniature(p), png)
+        print(f"Miniature créée : {png}")
     return 0

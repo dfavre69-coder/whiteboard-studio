@@ -22,13 +22,23 @@ Réponds UNIQUEMENT avec un objet JSON valide, sans texte avant ni après, sans 
       "image": "clipart:ampoule",
       "narration": "…"
     }
-  ]
+  ],
+  "publication": {
+    "titres_youtube": ["Trois titres YouTube différents, 60 caractères max, qui donnent envie de cliquer"],
+    "description": "Description YouTube de 2 à 4 phrases, avec les mots clés du sujet",
+    "hashtags": ["#trois", "#à", "#cinq"],
+    "texte_miniature": "2 à 4 mots pour la miniature",
+    "commentaire_epingle": "Une question à épingler en premier commentaire pour lancer la discussion"
+  }
 }
+
+Le bloc "publication" accompagne la vidéo sur YouTube : titres accrocheurs mais honnêtes (pas de promesse absente du texte source), texte de miniature très court et lisible en petit.
 
 ## Les modèles de scène
 
 Mises en page générales :
 - "titre" : ouverture ou début de chapitre. titre = grand titre (40 caractères max), texte = sous-titre court, image = un visuel.
+- "accroche" : première scène d'un Short (ou d'une vidéo qui doit retenir tout de suite). titre = la phrase choc (8 mots max), affichée d'un coup puis surlignée par la main ; image = un visuel fort ; texte = précision courte (facultatif).
 - "libre" : une idée illustrée par un seul visuel. titre = titre court, image = le visuel, texte = une légende de 6 à 10 mots.
 - "liste" : 3 à 5 points à retenir. titre = titre de la liste, texte = une ligne courte par point (45 caractères max), chacune pouvant commencer par un visuel entre crochets.
 - "etapes" : un processus. titre = titre, texte = 2 à 5 lignes « [visuel] Libellé de 1 à 3 mots ».
@@ -82,6 +92,8 @@ Un visuel s'écrit dans le champ image, ou entre crochets en début de ligne dan
 {ICONES}
 
 ## Exemples de scènes réussies
+
+{"modele": "accroche", "titre": "Votre cerveau efface 70 % de ce qu'il lit", "texte": "en moins d'une journée", "image": "clipart:cerveau", "narration": "Votre cerveau efface soixante-dix pour cent de ce que vous lisez, en moins d'une journée. Sauf si vous faites une chose."}
 
 {"modele": "personnage", "titre": "", "image": "personne:femme,pensive,lunettes", "texte": "[clipart:goutte-d-eau] D'où vient la pluie ?", "narration": "Vous êtes-vous déjà demandé d'où vient l'eau qui tombe du ciel ? La réponse tient en trois étapes."}
 
